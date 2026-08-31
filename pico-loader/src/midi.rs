@@ -13,19 +13,64 @@ pub struct MidiEvent {
     pub _reserved: u8,
 }
 
-impl MidiEvent {
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Lv2Atom {
+    pub size: u32,
+    pub atom_type: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Lv2AtomSequenceBody {
+    pub unit: u32,
+    pub pad: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Lv2MidiEvent {
+    pub frame: i64,
+    pub body: Lv2Atom,
+    pub message: [u8; 3],
+    pub padding: [u8; 5],
+}
+
+impl Lv2MidiEvent {
     pub const EMPTY: Self = Self {
-        status: 0,
-        data1: 0,
-        data2: 0,
-        _reserved: 0,
+        frame: 0,
+        body: Lv2Atom {
+            size: 3,
+            atom_type: 0,
+        },
+        message: [0; 3],
+        padding: [0; 5],
     };
 }
 
 #[repr(C)]
-pub struct MidiEventBlock {
-    pub events: *const MidiEvent,
-    pub event_count: u32,
+pub struct Lv2MidiSequence {
+    pub atom: Lv2Atom,
+    pub body: Lv2AtomSequenceBody,
+    pub events: [Lv2MidiEvent; MIDI_BLOCK_CAPACITY],
+}
+
+impl Lv2MidiSequence {
+    pub const fn empty() -> Self {
+        Self {
+            atom: Lv2Atom {
+                size: core::mem::size_of::<Lv2AtomSequenceBody>() as u32,
+                atom_type: 0,
+            },
+            body: Lv2AtomSequenceBody { unit: 0, pad: 0 },
+            events: [Lv2MidiEvent::EMPTY; MIDI_BLOCK_CAPACITY],
+        }
+    }
+
+    pub fn set_event_count(&mut self, event_count: usize) {
+        self.atom.size = (core::mem::size_of::<Lv2AtomSequenceBody>()
+            + event_count * core::mem::size_of::<Lv2MidiEvent>()) as u32;
+    }
 }
 
 pub static MIDI_QUEUE: StaticCell<Queue<MidiEvent, MIDI_QUEUE_SIZE>> = StaticCell::new();

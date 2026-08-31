@@ -11,7 +11,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::i2s_ping_pong::{PioI2sOut, PioI2sOutProgram};
 use crate::lv2::Lv2Descriptor;
-use crate::midi::{MIDI_BLOCK_CAPACITY, MIDI_QUEUE_SIZE, MidiEvent, MidiEventBlock};
+use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 use heapless::spsc::Consumer;
 
 bind_interrupts!(struct Irqs {
@@ -30,12 +30,7 @@ const BUFFER_SIZE: usize = 512;
 // for as long as the plugin may write into it, so it can't just live inside
 // a value that gets moved (e.g. into an async task's captured state).
 static mut SCRATCH: [f32; BUFFER_SIZE] = [0.0; BUFFER_SIZE];
-static mut MIDI_EVENTS: [MidiEvent; MIDI_BLOCK_CAPACITY] =
-    [MidiEvent::EMPTY; MIDI_BLOCK_CAPACITY];
-static mut MIDI_BLOCK: MidiEventBlock = MidiEventBlock {
-    events: core::ptr::null(),
-    event_count: 0,
-};
+static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
 
 // Pack left and right 16-bit samples into a single u32, as that's what the I2S DMA expects.
 #[inline]
@@ -54,19 +49,17 @@ struct Lv2Synth {
 impl Lv2Synth {
     fn process(&mut self, buf: &mut [u32]) -> ControlFlow<()> {
         let scratch = unsafe { &mut *core::ptr::addr_of_mut!(SCRATCH) };
-        let midi_events = unsafe { &mut *core::ptr::addr_of_mut!(MIDI_EVENTS) };
+        let midi_sequence = unsafe { &mut *core::ptr::addr_of_mut!(MIDI_SEQUENCE) };
         let mut event_count = 0;
-        while event_count < midi_events.len() {
+        while event_count < midi_sequence.events.len() {
             let Some(event) = self.midi_consumer.dequeue() else {
                 break;
             };
-            midi_events[event_count] = event;
+            midi_sequence.events[event_count].frame = 0;
+            midi_sequence.events[event_count].message = [event.status, event.data1, event.data2];
             event_count += 1;
         }
-        unsafe {
-            MIDI_BLOCK.events = midi_events.as_ptr();
-            MIDI_BLOCK.event_count = event_count as u32;
-        }
+        midi_sequence.set_event_count(event_count);
 
         (self.descriptor.run)(self.handle, buf.len() as u32);
         for (word, sample) in buf.iter_mut().zip(scratch.iter()) {
@@ -119,15 +112,12 @@ pub async fn audio_task(
     (descriptor.connect_port)(
         handle,
         0,
-        core::ptr::addr_of_mut!(SCRATCH) as *mut c_void,
+        core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
     );
-    unsafe {
-        MIDI_BLOCK.events = core::ptr::addr_of!(MIDI_EVENTS) as *const MidiEvent;
-    }
     (descriptor.connect_port)(
         handle,
         1,
-        core::ptr::addr_of_mut!(MIDI_BLOCK) as *mut c_void,
+        core::ptr::addr_of_mut!(SCRATCH) as *mut c_void,
     );
     (descriptor.activate)(handle);
 

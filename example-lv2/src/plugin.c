@@ -22,10 +22,10 @@ typedef struct LV2_Descriptor {
     const void *(*extension_data)(const char *uri);
 } LV2_Descriptor;
 
-// Port indices for this plugin: one audio output and a host-provided block of
-// MIDI events.
-#define PORT_OUTPUT 0
-#define PORT_MIDI_IN 1
+// Port indices for this plugin: one audio output and an LV2 Atom Sequence MIDI
+// input.
+#define PORT_MIDI_IN 0
+#define PORT_OUTPUT 1
 
 #define AMPLITUDE 0.8f
 
@@ -47,16 +47,24 @@ static const float SEMITONE_RATIOS[12] = {
 };
 
 typedef struct {
-    uint8_t status;
-    uint8_t data1;
-    uint8_t data2;
-    uint8_t reserved;
-} MidiEvent;
+    uint32_t size;
+    uint32_t type;
+} LV2_Atom;
 
 typedef struct {
-    const MidiEvent *events;
-    uint32_t event_count;
-} MidiEventBlock;
+    uint32_t unit;
+    uint32_t pad;
+} LV2_Atom_Sequence_Body;
+
+typedef struct {
+    LV2_Atom atom;
+    LV2_Atom_Sequence_Body body;
+} LV2_Atom_Sequence;
+
+typedef struct {
+    int64_t frames;
+    LV2_Atom body;
+} LV2_Atom_Event;
 
 // Freestanding build, no malloc: a single static instance is enough for our
 // purposes (we only ever instantiate one copy of this plugin at a time).
@@ -66,7 +74,7 @@ typedef struct {
     // single-precision float instead of libgcc's soft-double routines.
     float sample_rate;
     float *output;
-    const MidiEventBlock *midi_in;
+    const LV2_Atom_Sequence *midi_in;
     float note_frequency;
     float velocity_gain;
     uint8_t active_note;
@@ -102,7 +110,7 @@ static void connect_port(LV2_Handle instance, uint32_t port, void *data_location
             synth->output = (float *)data_location;
             break;
         case PORT_MIDI_IN:
-            synth->midi_in = (const MidiEventBlock *)data_location;
+            synth->midi_in = (const LV2_Atom_Sequence *)data_location;
             break;
     }
 }
@@ -129,31 +137,46 @@ static float midi_note_frequency(uint8_t note) {
     return frequency;
 }
 
-static void handle_midi_event(SynthState *synth, const MidiEvent *event) {
-    uint8_t message = event->status & 0xf0;
-    if (message == 0x90 && event->data2 != 0) {
-        synth->active_note = event->data1;
-        synth->note_frequency = midi_note_frequency(event->data1);
-        synth->velocity_gain = (float)event->data2 / 127.0f;
+static void handle_midi_event(SynthState *synth, const uint8_t *message_data) {
+    uint8_t message = message_data[0] & 0xf0;
+    if (message == 0x90 && message_data[2] != 0) {
+        synth->active_note = message_data[1];
+        synth->note_frequency = midi_note_frequency(message_data[1]);
+        synth->velocity_gain = (float)message_data[2] / 127.0f;
         synth->note_on = 1;
         synth->phase = 0;
     } else if ((message == 0x80 || message == 0x90) &&
-               event->data1 == synth->active_note) {
+               message_data[1] == synth->active_note) {
         synth->note_on = 0;
         synth->velocity_gain = 0.0f;
     } else if (message == 0xb0 &&
-               (event->data1 == 120 || event->data1 == 123)) {
+               (message_data[1] == 120 || message_data[1] == 123)) {
         synth->note_on = 0;
         synth->velocity_gain = 0.0f;
     }
 }
 
+static uint32_t pad_size(uint32_t size) {
+    return (size + 7u) & ~7u;
+}
+
 static void run(LV2_Handle instance, uint32_t sample_count) {
     SynthState *synth = (SynthState *)instance;
-    if (synth->midi_in && synth->midi_in->events) {
-        for (uint32_t i = 0; i < synth->midi_in->event_count; i++) {
-            const MidiEvent *event = &synth->midi_in->events[i];
-            handle_midi_event(synth, event);
+    if (synth->midi_in &&
+        synth->midi_in->atom.size >= sizeof(LV2_Atom_Sequence_Body)) {
+        const uint8_t *event_ptr = (const uint8_t *)(&synth->midi_in->body + 1);
+        const uint8_t *end = (const uint8_t *)&synth->midi_in->body +
+                             synth->midi_in->atom.size;
+        while (event_ptr + sizeof(LV2_Atom_Event) <= end) {
+            const LV2_Atom_Event *event = (const LV2_Atom_Event *)event_ptr;
+            uint32_t event_size = sizeof(LV2_Atom_Event) + pad_size(event->body.size);
+            if (event_ptr + event_size > end) {
+                break;
+            }
+            if (event->body.size >= 3) {
+                handle_midi_event(synth, (const uint8_t *)(event + 1));
+            }
+            event_ptr += event_size;
         }
     }
 
