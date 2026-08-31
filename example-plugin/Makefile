@@ -5,7 +5,9 @@ READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 
 CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
-LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined
+# No --no-undefined: the plugin intentionally leaves some symbols (e.g.
+# host_double) unresolved, to be provided by the host loader at load time.
+LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic
 
 BUILD_DIR := build
 SRC := src/plugin.c
