@@ -1,6 +1,8 @@
 use heapless::spsc::Queue;
 use static_cell::StaticCell;
 
+use crate::lv2::{ATOM_SEQUENCE_URID, MIDI_EVENT_URID};
+
 pub const MIDI_QUEUE_SIZE: usize = 256;
 pub const MIDI_BLOCK_CAPACITY: usize = 64;
 
@@ -41,7 +43,7 @@ impl Lv2MidiEvent {
         frame: 0,
         body: Lv2Atom {
             size: 3,
-            atom_type: 0,
+            atom_type: MIDI_EVENT_URID,
         },
         message: [0; 3],
         padding: [0; 5],
@@ -60,7 +62,7 @@ impl Lv2MidiSequence {
         Self {
             atom: Lv2Atom {
                 size: core::mem::size_of::<Lv2AtomSequenceBody>() as u32,
-                atom_type: 0,
+                atom_type: ATOM_SEQUENCE_URID,
             },
             body: Lv2AtomSequenceBody { unit: 0, pad: 0 },
             events: [Lv2MidiEvent::EMPTY; MIDI_BLOCK_CAPACITY],

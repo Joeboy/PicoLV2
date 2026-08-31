@@ -8,12 +8,22 @@
 
 typedef void *LV2_Handle;
 
+typedef struct {
+    const char *uri;
+    void *data;
+} LV2_Feature;
+
+typedef struct {
+    void *handle;
+    uint32_t (*map)(void *handle, const char *uri);
+} LV2_URID_Map;
+
 typedef struct LV2_Descriptor {
     const char *uri;
     LV2_Handle (*instantiate)(const struct LV2_Descriptor *descriptor,
                                double sample_rate,
                                const char *bundle_path,
-                               const void *const *features);
+                               const LV2_Feature *const *features);
     void (*connect_port)(LV2_Handle instance, uint32_t port, void *data_location);
     void (*activate)(LV2_Handle instance);
     void (*run)(LV2_Handle instance, uint32_t sample_count);
@@ -26,6 +36,10 @@ typedef struct LV2_Descriptor {
 // input.
 #define PORT_MIDI_IN 0
 #define PORT_OUTPUT 1
+
+#define LV2_URID__map "http://lv2plug.in/ns/ext/urid#map"
+#define LV2_ATOM__Sequence "http://lv2plug.in/ns/ext/atom#Sequence"
+#define LV2_MIDI__MidiEvent "http://lv2plug.in/ns/ext/midi#MidiEvent"
 
 #define AMPLITUDE 0.8f
 
@@ -79,19 +93,48 @@ typedef struct {
     float velocity_gain;
     uint8_t active_note;
     uint8_t note_on;
+    uint32_t atom_sequence_urid;
+    uint32_t midi_event_urid;
     // Position within the current cycle, in samples.
     uint32_t phase;
 } SynthState;
 
 static SynthState g_state;
 
+static int strings_equal(const char *a, const char *b) {
+    while (*a && *a == *b) {
+        a++;
+        b++;
+    }
+    return *a == *b;
+}
+
 static LV2_Handle instantiate(const LV2_Descriptor *descriptor,
                                double sample_rate,
                                const char *bundle_path,
-                               const void *const *features) {
+                               const LV2_Feature *const *features) {
     (void)descriptor;
     (void)bundle_path;
-    (void)features;
+
+    const LV2_URID_Map *map = 0;
+    if (features) {
+        for (uint32_t i = 0; features[i]; i++) {
+            if (strings_equal(features[i]->uri, LV2_URID__map)) {
+                map = (const LV2_URID_Map *)features[i]->data;
+                break;
+            }
+        }
+    }
+    if (!map || !map->map) {
+        return 0;
+    }
+
+    uint32_t atom_sequence_urid = map->map(map->handle, LV2_ATOM__Sequence);
+    uint32_t midi_event_urid = map->map(map->handle, LV2_MIDI__MidiEvent);
+    if (!atom_sequence_urid || !midi_event_urid) {
+        return 0;
+    }
+
     g_state.sample_rate = (float)sample_rate;
     g_state.output = 0;
     g_state.midi_in = 0;
@@ -99,6 +142,8 @@ static LV2_Handle instantiate(const LV2_Descriptor *descriptor,
     g_state.velocity_gain = 0.0f;
     g_state.active_note = 0;
     g_state.note_on = 0;
+    g_state.atom_sequence_urid = atom_sequence_urid;
+    g_state.midi_event_urid = midi_event_urid;
     g_state.phase = 0;
     return &g_state;
 }
@@ -163,6 +208,7 @@ static uint32_t pad_size(uint32_t size) {
 static void run(LV2_Handle instance, uint32_t sample_count) {
     SynthState *synth = (SynthState *)instance;
     if (synth->midi_in &&
+        synth->midi_in->atom.type == synth->atom_sequence_urid &&
         synth->midi_in->atom.size >= sizeof(LV2_Atom_Sequence_Body)) {
         const uint8_t *event_ptr = (const uint8_t *)(&synth->midi_in->body + 1);
         const uint8_t *end = (const uint8_t *)&synth->midi_in->body +
@@ -173,7 +219,8 @@ static void run(LV2_Handle instance, uint32_t sample_count) {
             if (event_ptr + event_size > end) {
                 break;
             }
-            if (event->body.size >= 3) {
+            if (event->body.type == synth->midi_event_urid &&
+                event->body.size >= 3) {
                 handle_midi_event(synth, (const uint8_t *)(event + 1));
             }
             event_ptr += event_size;

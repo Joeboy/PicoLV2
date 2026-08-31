@@ -1,4 +1,4 @@
-use core::ffi::c_void;
+use core::ffi::{CStr, c_char, c_void};
 
 use defmt::info;
 use elf_loader::{Loader, Relocator, input::ElfBinary};
@@ -7,7 +7,10 @@ use heapless::spsc::{Consumer, Producer};
 use crate::audio_buffer::{
     AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_mut_ptr,
 };
-use crate::lv2::Lv2Descriptor;
+use crate::lv2::{
+    ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap,
+    MIDI_EVENT_URI, MIDI_EVENT_URID, URID_MAP_URI,
+};
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 
 static LV2_PLUGIN: &[u8] = include_bytes!("../../example-lv2/build/pico/plugin.so");
@@ -16,6 +19,34 @@ const MIDI_INPUT_PORT: u32 = 0;
 const AUDIO_OUTPUT_PORT: u32 = 1;
 
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
+
+extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
+    if uri.is_null() {
+        return 0;
+    }
+
+    let uri = unsafe { CStr::from_ptr(uri) }.to_bytes_with_nul();
+    if uri == ATOM_SEQUENCE_URI {
+        ATOM_SEQUENCE_URID
+    } else if uri == MIDI_EVENT_URI {
+        MIDI_EVENT_URID
+    } else {
+        0
+    }
+}
+
+static mut URID_MAP: Lv2UridMap = Lv2UridMap {
+    handle: core::ptr::null_mut(),
+    map: map_uri,
+};
+static mut URID_MAP_FEATURE: Lv2Feature = Lv2Feature {
+    uri: URID_MAP_URI.as_ptr() as *const c_char,
+    data: core::ptr::addr_of_mut!(URID_MAP) as *mut c_void,
+};
+static mut FEATURES: [*const Lv2Feature; 2] = [
+    core::ptr::addr_of!(URID_MAP_FEATURE),
+    core::ptr::null(),
+];
 
 /// Owns a loaded LV2 plugin instance and bridges queued MIDI events to its
 /// Atom Sequence input port.
@@ -50,7 +81,7 @@ impl PluginHost {
             descriptor,
             SAMPLE_RATE as f64,
             core::ptr::null(),
-            core::ptr::null(),
+            core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature,
         );
         assert!(!handle.is_null(), "failed to instantiate lv2 plugin");
 
