@@ -1,25 +1,26 @@
-# Build the Oxynth-derived LV2 plugin for Pico 2 (default) or Linux.
+# Build the Rust Oxynth LV2 plugin for Pico 2 (default) or Linux.
 TARGET ?= pico
 
 ifeq ($(TARGET),pico)
-CC := arm-none-eabi-gcc
+CARGO_TARGET := thumbv8m.main-none-eabihf
+RUST_ARCHIVE := target/$(CARGO_TARGET)/release/liboxynth_lv2.a
+LINKER := arm-none-eabi-gcc
 READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
-CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -fno-tree-loop-distribute-patterns -Wall -Wextra -O2
-LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined
+LDFLAGS := $(MCPU) -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack
 LDLIBS := -lgcc
 else ifeq ($(TARGET),linux)
-CC := gcc
+CARGO_TARGET := x86_64-unknown-linux-gnu
+RUST_ARCHIVE := target/$(CARGO_TARGET)/release/liboxynth_lv2.a
+LINKER := gcc
 READELF := readelf
-CFLAGS := -fPIC -Wall -Wextra -O2
-LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined
-LDLIBS :=
+LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack
+LDLIBS := -ldl -lpthread -lm
 else
 $(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
 endif
 
 BUILD_DIR := build/$(TARGET)
-SRC := src/plugin.c
 OUT := $(BUILD_DIR)/plugin.so
 BUNDLE_DIR := oxynth.lv2
 
@@ -40,8 +41,11 @@ bundle:
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(OUT): $(SRC) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(OUT) $(SRC) $(LDLIBS)
+$(RUST_ARCHIVE): Cargo.toml rust-toolchain.toml src/lib.rs src/abi.rs src/synth.rs
+	cargo build --release --target $(CARGO_TARGET)
+
+$(OUT): $(RUST_ARCHIVE) | $(BUILD_DIR)
+	$(LINKER) $(LDFLAGS) -Wl,-u,lv2_descriptor -o $(OUT) $(RUST_ARCHIVE) $(LDLIBS)
 
 info: $(OUT)
 	$(READELF) -h $(OUT)
@@ -51,3 +55,4 @@ info: $(OUT)
 clean:
 	rm -rf build
 	rm -f $(BUNDLE_DIR)/plugin.so
+	cargo clean
