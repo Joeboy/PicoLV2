@@ -41,4 +41,7 @@ Significantly _not_ done just yet:
   lot of work)
 - Proper port usage, the host just assumes port 0 is USB input and port 1 is
   audio out.
+- At some point I'm going to have to figure out what to do about controls. Maybe
+  eventually there will be hardware with knobs. Or for now we could wire it up
+  to MIDI controller messages?
 - Latency is not great, could probably be improved by reducing buffer sizes etc.
