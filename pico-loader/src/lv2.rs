@@ -19,7 +19,7 @@ pub struct Lv2UridMap {
     pub map: extern "C" fn(*mut c_void, *const c_char) -> u32,
 }
 
-// Mirrors the C `LV2_Descriptor` in example-lv2/src/plugin.c field-for-field.
+// Mirrors the C `LV2_Descriptor` in monosynth-lv2/src/plugin.c field-for-field.
 #[repr(C)]
 pub struct Lv2Descriptor {
     pub uri: *const c_char,

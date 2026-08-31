@@ -24,10 +24,11 @@ metadata files on the Pico.
 
 What exists so far is:
 
-- `example-lv2/` - A simple / stupid LV2 synth plugin written in C, that can be
+- `plugins/monosynth-lv2/` - A simple / stupid LV2 synth plugin written in C, that can be
   either built as a "real" LV2 plugin for linux, or a binary that can be loaded
   (currently `include_bytes()`d) on the Pico. It accepts USB midi input and
   outputs mono audio.
+- `pluginx/oxynth-lv2/` - A polyphonic synth with ADSR and stuff, written in Rust
 - `pico-loader/` A Rust / [Embassy](https://embassy.dev/) project that can run
   the plugin.
 - USB midi input and audio output for the Pico

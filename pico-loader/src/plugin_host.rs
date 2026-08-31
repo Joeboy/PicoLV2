@@ -9,12 +9,13 @@ use crate::audio_buffer::{
     block_mut_ptr,
 };
 use crate::lv2::{
-    ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap,
-    MIDI_EVENT_URI, MIDI_EVENT_URID, URID_MAP_URI,
+    ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap, MIDI_EVENT_URI,
+    MIDI_EVENT_URID, URID_MAP_URI,
 };
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 
-static LV2_PLUGIN: &[u8] = include_bytes!("../../oxynth-lv2/build/pico/plugin.so");
+static LV2_PLUGIN: &[u8] = include_bytes!("../../plugins/monosynth-lv2/build/pico/plugin.so");
+//static LV2_PLUGIN: &[u8] = include_bytes!("../../plugins/oxynth-lv2/build/pico/plugin.so");
 
 const MIDI_INPUT_PORT: u32 = 0;
 const AUDIO_OUTPUT_PORT: u32 = 1;
@@ -44,10 +45,8 @@ static mut URID_MAP_FEATURE: Lv2Feature = Lv2Feature {
     uri: URID_MAP_URI.as_ptr() as *const c_char,
     data: core::ptr::addr_of_mut!(URID_MAP) as *mut c_void,
 };
-static mut FEATURES: [*const Lv2Feature; 2] = [
-    core::ptr::addr_of!(URID_MAP_FEATURE),
-    core::ptr::null(),
-];
+static mut FEATURES: [*const Lv2Feature; 2] =
+    [core::ptr::addr_of!(URID_MAP_FEATURE), core::ptr::null()];
 
 /// Owns a loaded LV2 plugin instance and bridges queued MIDI events to its
 /// Atom Sequence input port.
@@ -110,7 +109,11 @@ impl PluginHost {
         let midi_sequence = unsafe { &mut *core::ptr::addr_of_mut!(MIDI_SEQUENCE) };
         let mut event_count = 0;
         while event_count < midi_sequence.events.len() {
-            let Some(event) = self.pending_midi.take().or_else(|| self.midi_consumer.dequeue()) else {
+            let Some(event) = self
+                .pending_midi
+                .take()
+                .or_else(|| self.midi_consumer.dequeue())
+            else {
                 break;
             };
 
@@ -128,18 +131,14 @@ impl PluginHost {
                 break;
             }
 
-            midi_sequence.events[event_count].frame = target_frame
-                .saturating_sub(self.block_start_frame) as i64;
+            midi_sequence.events[event_count].frame =
+                target_frame.saturating_sub(self.block_start_frame) as i64;
             midi_sequence.events[event_count].message = [event.status, event.data1, event.data2];
             event_count += 1;
         }
         midi_sequence.set_event_count(event_count);
 
-        (self.descriptor.connect_port)(
-            self.handle,
-            AUDIO_OUTPUT_PORT,
-            output as *mut c_void,
-        );
+        (self.descriptor.connect_port)(self.handle, AUDIO_OUTPUT_PORT, output as *mut c_void);
         (self.descriptor.run)(self.handle, BLOCK_SIZE as u32);
         self.block_start_frame += BLOCK_SIZE as u64;
     }
