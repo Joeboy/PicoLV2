@@ -4,6 +4,7 @@
 mod audio_out;
 mod i2s_ping_pong;
 mod lv2;
+mod midi;
 mod usb_midi_in;
 
 use core::ffi::{CStr, c_void};
@@ -14,6 +15,8 @@ use elf_loader::{Loader, Relocator, input::ElfBinary};
 use embassy_executor::Executor;
 use embedded_alloc::LlffHeap as Heap;
 use lv2::Lv2Descriptor;
+use midi::MIDI_QUEUE;
+use heapless::spsc::Queue;
 use static_cell::StaticCell;
 use usb_midi_in::usb_midi_task;
 use {defmt_rtt as _, panic_probe as _};
@@ -58,18 +61,16 @@ fn run_example_lv2_tests() {
 
     let handle = (descriptor.instantiate)(descriptor, 48000.0, core::ptr::null(), core::ptr::null());
 
-    let frequency: f32 = 8000.0;
     let mut output: [f32; 16] = [0.0; 16];
 
-    (descriptor.connect_port)(handle, 0, (&frequency as *const f32) as *mut c_void);
-    (descriptor.connect_port)(handle, 1, (output.as_mut_ptr()) as *mut c_void);
+    (descriptor.connect_port)(handle, 0, (output.as_mut_ptr()) as *mut c_void);
 
     (descriptor.activate)(handle);
     (descriptor.run)(handle, output.len() as u32);
     (descriptor.deactivate)(handle);
     (descriptor.cleanup)(handle);
 
-    debug!("lv2 square synth output (freq={}) = {}", frequency, output);
+    debug!("lv2 square synth output (no MIDI note) = {}", output);
 }
 
 #[cortex_m_rt::entry]
@@ -80,12 +81,21 @@ fn main() -> ! {
     }
     info!("pico-loader starting");
 
+    let midi_queue = MIDI_QUEUE.init(Queue::new());
+    let (midi_producer, midi_consumer) = midi_queue.split();
+
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
         spawner.spawn(unwrap!(run_task()));
         spawner.spawn(unwrap!(audio_task(
-            p.PIO0, p.DMA_CH0, p.DMA_CH1, p.PIN_18, p.PIN_19, p.PIN_20
+            p.PIO0,
+            p.DMA_CH0,
+            p.DMA_CH1,
+            p.PIN_18,
+            p.PIN_19,
+            p.PIN_20,
+            midi_consumer,
         )));
-        spawner.spawn(unwrap!(usb_midi_task(p.USB)));
+        spawner.spawn(unwrap!(usb_midi_task(p.USB, midi_producer)));
     })
 }

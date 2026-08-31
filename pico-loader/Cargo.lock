@@ -1106,6 +1106,7 @@ dependencies = [
  "embassy-usb-host",
  "embedded-alloc",
  "fixed",
+ "heapless 0.8.0",
  "panic-probe",
  "pio",
  "portable-atomic",

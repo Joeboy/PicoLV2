@@ -9,6 +9,9 @@ use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 use embassy_usb_host::descriptor::ConfigurationDescriptorChain;
 use embassy_usb_host::handler::{BusRoute, EnumerationInfo, RegisterError};
 use embassy_usb_host::{BusState, bus};
+use heapless::spsc::Producer;
+
+use crate::midi::{MIDI_QUEUE_SIZE, MidiEvent};
 
 const MAX_DESCRIPTOR_SIZE: usize = 512;
 static USB_BUS_STATE: BusState = BusState::new();
@@ -57,20 +60,17 @@ impl<'d, A: UsbHostAllocator<'d>> MidiHandler<'d, A> {
     }
 }
 
-fn log_note(packet: [u8; 4]) {
+fn midi_event(packet: [u8; 4]) -> Option<MidiEvent> {
     let status = packet[1];
-    let note = packet[2];
-    let velocity = packet[3];
-    let channel = (status & 0x0f) + 1;
 
     match status & 0xf0 {
-        0x90 if velocity != 0 => {
-            info!("MIDI note on: channel={}, note={}, velocity={}", channel, note, velocity);
-        }
-        0x80 | 0x90 => {
-            info!("MIDI note off: channel={}, note={}, velocity={}", channel, note, velocity);
-        }
-        _ => debug!("Ignoring USB MIDI packet: {=[u8]:x}", &packet[..]),
+        0x80 | 0x90 | 0xb0 => Some(MidiEvent {
+            status,
+            data1: packet[2],
+            data2: packet[3],
+            _reserved: 0,
+        }),
+        _ => None,
     }
 }
 
@@ -79,7 +79,10 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-pub async fn usb_midi_task(usb: Peri<'static, USB>) -> ! {
+pub async fn usb_midi_task(
+    usb: Peri<'static, USB>,
+    mut producer: Producer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
+) -> ! {
     let driver = embassy_rp::usb::host::Driver::new(usb, Irqs);
     let (mut controller, bus) = bus(driver, &USB_BUS_STATE);
 
@@ -123,7 +126,15 @@ pub async fn usb_midi_task(usb: Peri<'static, USB>) -> ! {
         info!("USB MIDI input ready");
         loop {
             match select(midi.read_packet(), controller.wait_for_device_event()).await {
-                Either::First(Ok(packet)) => log_note(packet),
+                Either::First(Ok(packet)) => {
+                    if let Some(event) = midi_event(packet) {
+                        if producer.enqueue(event).is_err() {
+                            warn!("MIDI queue full; dropping event");
+                        }
+                    } else {
+                        debug!("Ignoring USB MIDI packet: {=[u8]:x}", &packet[..]);
+                    }
+                }
                 Either::First(Err(error)) => {
                     warn!("USB MIDI read failed: {:?}", error);
                     break;
@@ -135,6 +146,14 @@ pub async fn usb_midi_task(usb: Peri<'static, USB>) -> ! {
                 Either::Second(event) => debug!("USB device event: {:?}", event),
             }
         }
+
+        // Prevent stuck notes once the plugin starts maintaining note state.
+        let _ = producer.enqueue(MidiEvent {
+            status: 0xb0,
+            data1: 123,
+            data2: 0,
+            _reserved: 0,
+        });
 
         bus.free_address(enum_info.device_address);
     }

@@ -11,6 +11,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 use crate::i2s_ping_pong::{PioI2sOut, PioI2sOutProgram};
 use crate::lv2::Lv2Descriptor;
+use crate::midi::{MIDI_BLOCK_CAPACITY, MIDI_QUEUE_SIZE, MidiEvent, MidiEventBlock};
+use heapless::spsc::Consumer;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -23,12 +25,17 @@ static LV2_PLUGIN: &[u8] = include_bytes!("../../example-lv2/build/pico/plugin.s
 const SAMPLE_RATE: u32 = 48_000;
 const BIT_DEPTH: u32 = 16;
 const BUFFER_SIZE: usize = 512;
-const FREQUENCY_HZ: f32 = 440.0;
 
 // Connected to the plugin's audio output port; must have a stable address
 // for as long as the plugin may write into it, so it can't just live inside
 // a value that gets moved (e.g. into an async task's captured state).
 static mut SCRATCH: [f32; BUFFER_SIZE] = [0.0; BUFFER_SIZE];
+static mut MIDI_EVENTS: [MidiEvent; MIDI_BLOCK_CAPACITY] =
+    [MidiEvent::EMPTY; MIDI_BLOCK_CAPACITY];
+static mut MIDI_BLOCK: MidiEventBlock = MidiEventBlock {
+    events: core::ptr::null(),
+    event_count: 0,
+};
 
 // Pack left and right 16-bit samples into a single u32, as that's what the I2S DMA expects.
 #[inline]
@@ -41,11 +48,26 @@ fn pack_lr_16(l: i16, r: i16) -> u32 {
 struct Lv2Synth {
     descriptor: &'static Lv2Descriptor,
     handle: *mut c_void,
+    midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
 }
 
 impl Lv2Synth {
     fn process(&mut self, buf: &mut [u32]) -> ControlFlow<()> {
         let scratch = unsafe { &mut *core::ptr::addr_of_mut!(SCRATCH) };
+        let midi_events = unsafe { &mut *core::ptr::addr_of_mut!(MIDI_EVENTS) };
+        let mut event_count = 0;
+        while event_count < midi_events.len() {
+            let Some(event) = self.midi_consumer.dequeue() else {
+                break;
+            };
+            midi_events[event_count] = event;
+            event_count += 1;
+        }
+        unsafe {
+            MIDI_BLOCK.events = midi_events.as_ptr();
+            MIDI_BLOCK.event_count = event_count as u32;
+        }
+
         (self.descriptor.run)(self.handle, buf.len() as u32);
         for (word, sample) in buf.iter_mut().zip(scratch.iter()) {
             let pcm = (*sample * i16::MAX as f32) as i16;
@@ -63,6 +85,7 @@ pub async fn audio_task(
     pin18: Peri<'static, PIN_18>,
     pin19: Peri<'static, PIN_19>,
     pin20: Peri<'static, PIN_20>,
+    midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
 ) {
     info!("Starting I2S audio output task (LV2 square synth)");
 
@@ -93,16 +116,26 @@ pub async fn audio_task(
         core::ptr::null(),
     );
 
-    static FREQUENCY: f32 = FREQUENCY_HZ;
-    (descriptor.connect_port)(handle, 0, (&FREQUENCY as *const f32) as *mut c_void);
+    (descriptor.connect_port)(
+        handle,
+        0,
+        core::ptr::addr_of_mut!(SCRATCH) as *mut c_void,
+    );
+    unsafe {
+        MIDI_BLOCK.events = core::ptr::addr_of!(MIDI_EVENTS) as *const MidiEvent;
+    }
     (descriptor.connect_port)(
         handle,
         1,
-        core::ptr::addr_of_mut!(SCRATCH) as *mut c_void,
+        core::ptr::addr_of_mut!(MIDI_BLOCK) as *mut c_void,
     );
     (descriptor.activate)(handle);
 
-    let mut synth = Lv2Synth { descriptor, handle };
+    let mut synth = Lv2Synth {
+        descriptor,
+        handle,
+        midi_consumer,
+    };
 
     let Pio {
         mut common, sm0, ..
