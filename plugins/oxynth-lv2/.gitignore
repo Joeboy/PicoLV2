@@ -1,2 +1,3 @@
 build/
+target/
 oxynth.lv2/plugin.so
