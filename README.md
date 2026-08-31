@@ -35,8 +35,10 @@ What exists so far is:
 Significantly _not_ done just yet:
 
 - A proper README that might be useful to anybody other than me
-- Audio input to the Pico (both hardware and software parts)
+- Audio input to the Pico (both hardware and software parts). Synths are nice
+  but being able to do effects is the real goal.
 - Any kind of testing of "real" plugins (I suspect very few will work without a
   lot of work)
 - Proper port usage, the host just assumes port 0 is USB input and port 1 is
   audio out.
+- Latency is not great, could probably be improved by reducing buffer sizes etc.

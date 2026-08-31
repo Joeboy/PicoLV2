@@ -13,6 +13,7 @@ pub struct MidiEvent {
     pub data1: u8,
     pub data2: u8,
     pub _reserved: u8,
+    pub timestamp_micros: u64,
 }
 
 #[repr(C)]

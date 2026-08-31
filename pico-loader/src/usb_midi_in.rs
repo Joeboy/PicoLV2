@@ -3,6 +3,7 @@ use embassy_futures::select::{Either, select};
 use embassy_rp::Peri;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
+use embassy_time::Instant;
 use embassy_usb_driver::host::pipe;
 use embassy_usb_driver::host::{DeviceEvent, PipeError, UsbHostAllocator, UsbPipe};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
@@ -60,7 +61,7 @@ impl<'d, A: UsbHostAllocator<'d>> MidiHandler<'d, A> {
     }
 }
 
-fn midi_event(packet: [u8; 4]) -> Option<MidiEvent> {
+fn midi_event(packet: [u8; 4], timestamp_micros: u64) -> Option<MidiEvent> {
     let status = packet[1];
 
     match status & 0xf0 {
@@ -69,6 +70,7 @@ fn midi_event(packet: [u8; 4]) -> Option<MidiEvent> {
             data1: packet[2],
             data2: packet[3],
             _reserved: 0,
+            timestamp_micros,
         }),
         _ => None,
     }
@@ -127,7 +129,7 @@ pub async fn usb_midi_task(
         loop {
             match select(midi.read_packet(), controller.wait_for_device_event()).await {
                 Either::First(Ok(packet)) => {
-                    if let Some(event) = midi_event(packet) {
+                    if let Some(event) = midi_event(packet, Instant::now().as_micros()) {
                         if producer.enqueue(event).is_err() {
                             warn!("MIDI queue full; dropping event");
                         }
@@ -153,6 +155,7 @@ pub async fn usb_midi_task(
             data1: 123,
             data2: 0,
             _reserved: 0,
+            timestamp_micros: Instant::now().as_micros(),
         });
 
         bus.free_address(enum_info.device_address);

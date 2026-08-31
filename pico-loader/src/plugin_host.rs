@@ -5,7 +5,8 @@ use elf_loader::{Loader, Relocator, input::ElfBinary};
 use heapless::spsc::{Consumer, Producer};
 
 use crate::audio_buffer::{
-    AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_mut_ptr,
+    AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
+    block_mut_ptr,
 };
 use crate::lv2::{
     ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap,
@@ -54,6 +55,9 @@ pub struct PluginHost {
     descriptor: &'static Lv2Descriptor,
     handle: *mut c_void,
     midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
+    pending_midi: Option<MidiEvent>,
+    timeline_origin_micros: u64,
+    block_start_frame: u64,
 }
 
 impl PluginHost {
@@ -96,6 +100,9 @@ impl PluginHost {
             descriptor,
             handle,
             midi_consumer,
+            pending_midi: None,
+            timeline_origin_micros: embassy_time::Instant::now().as_micros(),
+            block_start_frame: 0,
         }
     }
 
@@ -103,10 +110,26 @@ impl PluginHost {
         let midi_sequence = unsafe { &mut *core::ptr::addr_of_mut!(MIDI_SEQUENCE) };
         let mut event_count = 0;
         while event_count < midi_sequence.events.len() {
-            let Some(event) = self.midi_consumer.dequeue() else {
+            let Some(event) = self.pending_midi.take().or_else(|| self.midi_consumer.dequeue()) else {
                 break;
             };
-            midi_sequence.events[event_count].frame = 0;
+
+            // Schedule by reception time plus the maximum render-ahead depth:
+            // static float-pool blocks plus packed I2S DMA buffers.
+            let received_micros = event
+                .timestamp_micros
+                .saturating_sub(self.timeline_origin_micros);
+            let received_frame = received_micros.saturating_mul(SAMPLE_RATE as u64) / 1_000_000;
+            let target_frame = received_frame
+                .saturating_add(MIDI_SCHEDULING_DELAY_BLOCKS as u64 * BLOCK_SIZE as u64);
+            let block_end_frame = self.block_start_frame + BLOCK_SIZE as u64;
+            if target_frame >= block_end_frame {
+                self.pending_midi = Some(event);
+                break;
+            }
+
+            midi_sequence.events[event_count].frame = target_frame
+                .saturating_sub(self.block_start_frame) as i64;
             midi_sequence.events[event_count].message = [event.status, event.data1, event.data2];
             event_count += 1;
         }
@@ -118,6 +141,7 @@ impl PluginHost {
             output as *mut c_void,
         );
         (self.descriptor.run)(self.handle, BLOCK_SIZE as u32);
+        self.block_start_frame += BLOCK_SIZE as u64;
     }
 }
 

@@ -205,8 +205,32 @@ static uint32_t pad_size(uint32_t size) {
     return (size + 7u) & ~7u;
 }
 
+static void render(SynthState *synth, uint32_t start, uint32_t end) {
+    float freq = synth->note_frequency;
+    uint32_t period_samples = (uint32_t)(synth->sample_rate / freq);
+    if (period_samples < 2) {
+        period_samples = 2;
+    }
+    uint32_t half_period = period_samples / 2;
+    float amplitude = AMPLITUDE * synth->velocity_gain;
+
+    for (uint32_t i = start; i < end; i++) {
+        if (!synth->note_on) {
+            synth->output[i] = 0.0f;
+            continue;
+        }
+
+        synth->output[i] = (synth->phase < half_period) ? amplitude : -amplitude;
+        synth->phase++;
+        if (synth->phase >= period_samples) {
+            synth->phase = 0;
+        }
+    }
+}
+
 static void run(LV2_Handle instance, uint32_t sample_count) {
     SynthState *synth = (SynthState *)instance;
+    uint32_t offset = 0;
     if (synth->midi_in &&
         synth->midi_in->atom.type == synth->atom_sequence_urid &&
         synth->midi_in->atom.size >= sizeof(LV2_Atom_Sequence_Body)) {
@@ -221,32 +245,21 @@ static void run(LV2_Handle instance, uint32_t sample_count) {
             }
             if (event->body.type == synth->midi_event_urid &&
                 event->body.size >= 3) {
+                uint32_t event_frame = event->frames < 0 ? 0 : (uint32_t)event->frames;
+                if (event_frame > sample_count) {
+                    event_frame = sample_count;
+                }
+                if (event_frame < offset) {
+                    event_frame = offset;
+                }
+                render(synth, offset, event_frame);
                 handle_midi_event(synth, (const uint8_t *)(event + 1));
+                offset = event_frame;
             }
             event_ptr += event_size;
         }
     }
-
-    float freq = synth->note_frequency;
-    uint32_t period_samples = (uint32_t)(synth->sample_rate / freq);
-    if (period_samples < 2) {
-        period_samples = 2;
-    }
-    uint32_t half_period = period_samples / 2;
-
-    for (uint32_t i = 0; i < sample_count; i++) {
-        if (!synth->note_on) {
-            synth->output[i] = 0.0f;
-            continue;
-        }
-
-        float amplitude = AMPLITUDE * synth->velocity_gain;
-        synth->output[i] = (synth->phase < half_period) ? amplitude : -amplitude;
-        synth->phase++;
-        if (synth->phase >= period_samples) {
-            synth->phase = 0;
-        }
-    }
+    render(synth, offset, sample_count);
 }
 
 static void deactivate(LV2_Handle instance) {

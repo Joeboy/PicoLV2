@@ -5,6 +5,8 @@ pub const SAMPLE_RATE: u32 = 48_000;
 pub const BLOCK_SIZE: usize = 512;
 pub const AUDIO_BLOCK_COUNT: usize = 3;
 pub const AUDIO_QUEUE_SIZE: usize = AUDIO_BLOCK_COUNT + 1;
+pub const I2S_DMA_BUFFER_COUNT: usize = 2;
+pub const MIDI_SCHEDULING_DELAY_BLOCKS: usize = AUDIO_BLOCK_COUNT + I2S_DMA_BUFFER_COUNT;
 
 pub type AudioBlock = [f32; BLOCK_SIZE];
 pub type AudioBlockIndex = u8;
