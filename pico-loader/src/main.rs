@@ -4,6 +4,7 @@
 mod audio_out;
 mod i2s_ping_pong;
 mod lv2;
+mod usb_midi_in;
 
 use core::ffi::{CStr, c_void};
 
@@ -14,6 +15,7 @@ use embassy_executor::Executor;
 use embedded_alloc::LlffHeap as Heap;
 use lv2::Lv2Descriptor;
 use static_cell::StaticCell;
+use usb_midi_in::usb_midi_task;
 use {defmt_rtt as _, panic_probe as _};
 
 static LV2_PLUGIN: &[u8] = include_bytes!("../../example-lv2/build/pico/plugin.so");
@@ -28,7 +30,7 @@ static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
 #[embassy_executor::task]
 async fn run_task() {
-    run_example_lv2_tests();
+    // run_example_lv2_tests();
 
     loop {
         embassy_time::Timer::after_secs(1).await;
@@ -84,5 +86,6 @@ fn main() -> ! {
         spawner.spawn(unwrap!(audio_task(
             p.PIO0, p.DMA_CH0, p.DMA_CH1, p.PIN_18, p.PIN_19, p.PIN_20
         )));
+        spawner.spawn(unwrap!(usb_midi_task(p.USB)));
     })
 }
