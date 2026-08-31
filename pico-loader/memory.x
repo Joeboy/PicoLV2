@@ -36,8 +36,8 @@ SECTIONS {
 
 } INSERT AFTER .vector_table;
 
-/* move .text to start /after/ the boot info */
-_stext = ADDR(.start_block) + SIZEOF(.start_block);
+/* Move .text after the boot info, rounded up to its required alignment. */
+_stext = ALIGN(ADDR(.start_block) + SIZEOF(.start_block), 8);
 
 SECTIONS {
     /* ### Picotool 'Binary Info' Entries
