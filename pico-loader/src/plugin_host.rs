@@ -4,7 +4,9 @@ use defmt::info;
 use elf_loader::{Loader, Relocator, input::ElfBinary};
 use heapless::spsc::{Consumer, Producer};
 
-use crate::audio_buffer::{AUDIO_QUEUE_SIZE, AudioBlock, BLOCK_SIZE, SAMPLE_RATE};
+use crate::audio_buffer::{
+    AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_mut_ptr,
+};
 use crate::lv2::Lv2Descriptor;
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 
@@ -13,8 +15,6 @@ static LV2_PLUGIN: &[u8] = include_bytes!("../../example-lv2/build/pico/plugin.s
 const MIDI_INPUT_PORT: u32 = 0;
 const AUDIO_OUTPUT_PORT: u32 = 1;
 
-// Port buffers need stable addresses for the lifetime of the plugin instance.
-static mut AUDIO_OUTPUT: AudioBlock = [0.0; BLOCK_SIZE];
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
 
 /// Owns a loaded LV2 plugin instance and bridges queued MIDI events to its
@@ -59,11 +59,6 @@ impl PluginHost {
             MIDI_INPUT_PORT,
             core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
         );
-        (descriptor.connect_port)(
-            handle,
-            AUDIO_OUTPUT_PORT,
-            core::ptr::addr_of_mut!(AUDIO_OUTPUT) as *mut c_void,
-        );
         (descriptor.activate)(handle);
 
         Self {
@@ -73,7 +68,7 @@ impl PluginHost {
         }
     }
 
-    pub fn process(&mut self) -> &'static AudioBlock {
+    unsafe fn process(&mut self, output: *mut f32) {
         let midi_sequence = unsafe { &mut *core::ptr::addr_of_mut!(MIDI_SEQUENCE) };
         let mut event_count = 0;
         while event_count < midi_sequence.events.len() {
@@ -86,23 +81,34 @@ impl PluginHost {
         }
         midi_sequence.set_event_count(event_count);
 
+        (self.descriptor.connect_port)(
+            self.handle,
+            AUDIO_OUTPUT_PORT,
+            output as *mut c_void,
+        );
         (self.descriptor.run)(self.handle, BLOCK_SIZE as u32);
-        unsafe { &*core::ptr::addr_of!(AUDIO_OUTPUT) }
     }
 }
 
 #[embassy_executor::task]
 pub async fn plugin_host_task(
     midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
-    mut audio_producer: Producer<'static, AudioBlock, AUDIO_QUEUE_SIZE>,
+    mut free_consumer: Consumer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
+    mut ready_producer: Producer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
 ) -> ! {
     info!("Starting LV2 plugin host task");
     let mut plugin = PluginHost::load(midi_consumer);
 
     loop {
-        let block = *plugin.process();
-        while let Err(returned_block) = audio_producer.enqueue(block) {
-            let _ = returned_block;
+        let index = loop {
+            if let Some(index) = free_consumer.dequeue() {
+                break index;
+            }
+            embassy_futures::yield_now().await;
+        };
+
+        unsafe { plugin.process(block_mut_ptr(index)) };
+        while ready_producer.enqueue(index).is_err() {
             embassy_futures::yield_now().await;
         }
     }

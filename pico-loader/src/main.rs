@@ -10,7 +10,7 @@ mod plugin_host;
 mod usb_midi_in;
 
 use audio_out::audio_task;
-use audio_buffer::AUDIO_QUEUE;
+use audio_buffer::{AUDIO_BLOCK_COUNT, FREE_AUDIO_BLOCKS, READY_AUDIO_BLOCKS};
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_rp::multicore::{Stack, spawn_core1};
@@ -42,8 +42,15 @@ fn main() -> ! {
 
     let midi_queue = MIDI_QUEUE.init(Queue::new());
     let (midi_producer, midi_consumer) = midi_queue.split();
-    let audio_queue = AUDIO_QUEUE.init(Queue::new());
-    let (audio_producer, audio_consumer) = audio_queue.split();
+    let free_audio_blocks = FREE_AUDIO_BLOCKS.init(Queue::new());
+    for index in 0..AUDIO_BLOCK_COUNT {
+        free_audio_blocks
+            .enqueue(index as u8)
+            .expect("free audio block queue too small");
+    }
+    let (free_producer, free_consumer) = free_audio_blocks.split();
+    let ready_audio_blocks = READY_AUDIO_BLOCKS.init(Queue::new());
+    let (ready_producer, ready_consumer) = ready_audio_blocks.split();
 
     spawn_core1(
         p.CORE1,
@@ -51,7 +58,11 @@ fn main() -> ! {
         move || {
             let executor1 = EXECUTOR1.init(Executor::new());
             executor1.run(|spawner| {
-                spawner.spawn(unwrap!(plugin_host_task(midi_consumer, audio_producer)));
+                spawner.spawn(unwrap!(plugin_host_task(
+                    midi_consumer,
+                    free_consumer,
+                    ready_producer,
+                )));
             });
         },
     );
@@ -65,7 +76,8 @@ fn main() -> ! {
             p.PIN_18,
             p.PIN_19,
             p.PIN_20,
-            audio_consumer,
+            ready_consumer,
+            free_producer,
         )));
         spawner.spawn(unwrap!(usb_midi_task(p.USB, midi_producer)));
     })

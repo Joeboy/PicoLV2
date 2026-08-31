@@ -7,9 +7,11 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIN_18, PIN_19, PIN_20, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use {defmt_rtt as _, panic_probe as _};
 
-use crate::audio_buffer::{AUDIO_QUEUE_SIZE, AudioBlock, BLOCK_SIZE, SAMPLE_RATE};
+use crate::audio_buffer::{
+    AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr,
+};
 use crate::i2s_ping_pong::{PioI2sOut, PioI2sOutProgram};
-use heapless::spsc::Consumer;
+use heapless::spsc::{Consumer, Producer};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -31,7 +33,8 @@ pub async fn audio_task(
     pin18: Peri<'static, PIN_18>,
     pin19: Peri<'static, PIN_19>,
     pin20: Peri<'static, PIN_20>,
-    mut audio_consumer: Consumer<'static, AudioBlock, AUDIO_QUEUE_SIZE>,
+    mut ready_consumer: Consumer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
+    mut free_producer: Producer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
 ) {
     info!("Starting I2S audio output task");
 
@@ -60,11 +63,16 @@ pub async fn audio_task(
     );
 
     i2s.stream_ping_pong(dma_ch0, dma_ch1, &mut buf_a, &mut buf_b, move |buf| {
-        if let Some(block) = audio_consumer.dequeue() {
-            for (word, sample) in buf.iter_mut().zip(block.iter()) {
-                let pcm = (*sample * i16::MAX as f32) as i16;
+        if let Some(index) = ready_consumer.dequeue() {
+            let samples = unsafe { block_ptr(index) };
+            for (sample_index, word) in buf.iter_mut().enumerate() {
+                let sample = unsafe { samples.add(sample_index).read() };
+                let pcm = (sample * i16::MAX as f32) as i16;
                 *word = pack_lr_16(pcm, pcm);
             }
+            free_producer
+                .enqueue(index)
+                .expect("free audio block queue unexpectedly full");
         } else {
             buf.fill(0);
         }
