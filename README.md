@@ -30,7 +30,6 @@ What exists so far is:
 
 Significantly _not_ done just yet:
 
-- Audio output _from_ the Pico
-- Audio input _to_ the Pico
+- Audio input to the Pico
 - USB input on the Pico
 - Any kind of testing of "real" plugins

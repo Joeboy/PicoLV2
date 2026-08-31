@@ -1,123 +1,38 @@
 #![no_std]
 #![no_main]
 
-use core::ffi::{CStr, c_char, c_void};
+mod audio_out;
+mod i2s_ping_pong;
+mod lv2;
 
+use core::ffi::{CStr, c_void};
+
+use audio_out::audio_task;
 use defmt::*;
-use elf_loader::{
-    Loader, Relocator,
-    image::{SyntheticModule, SyntheticSymbol},
-    input::ElfBinary,
-};
+use elf_loader::{Loader, Relocator, input::ElfBinary};
 use embassy_executor::Executor;
 use embedded_alloc::LlffHeap as Heap;
+use lv2::Lv2Descriptor;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-// The example plugins, built by their own Makefiles, embedded directly into
-// this binary (dynamic loading is still done by `elf_loader` at runtime; this
-// is just how the plugin bytes get onto the device for now).
-static PLUGIN: &[u8] = include_bytes!("../../example-plugin/build/plugin.so");
 static LV2_PLUGIN: &[u8] = include_bytes!("../../example-lv2/build/pico/plugin.so");
-
-// Mirrors the C `LV2_Descriptor` in example-lv2/src/plugin.c field-for-field.
-#[repr(C)]
-struct Lv2Descriptor {
-    uri: *const c_char,
-    instantiate: extern "C" fn(
-        *const Lv2Descriptor,
-        f64,
-        *const c_char,
-        *const *const c_void,
-    ) -> *mut c_void,
-    connect_port: extern "C" fn(*mut c_void, u32, *mut c_void),
-    activate: extern "C" fn(*mut c_void),
-    run: extern "C" fn(*mut c_void, u32),
-    deactivate: extern "C" fn(*mut c_void),
-    cleanup: extern "C" fn(*mut c_void),
-    extension_data: extern "C" fn(*const c_char) -> *const c_void,
-}
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-const HEAP_SIZE: usize = 128 * 1024;
+const HEAP_SIZE: usize = 256 * 1024;
 static mut HEAP_MEM: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
 
 static EXECUTOR: StaticCell<Executor> = StaticCell::new();
 
-// Provided to the plugin as a host callback (see `host_double` in
-// example-plugin/src/plugin.c), resolved into the plugin's PLT at load time.
-extern "C" fn host_double(x: i32) -> i32 {
-    x * 2
-}
-
 #[embassy_executor::task]
 async fn run_task() {
-    run_example_plugin_tests();
     run_example_lv2_tests();
 
     loop {
         embassy_time::Timer::after_secs(1).await;
     }
-}
-
-fn run_example_plugin_tests() {
-    let raw = Loader::new()
-        .run()
-        .load_dylib(ElfBinary::new("plugin.so", PLUGIN))
-        .expect("failed to load plugin");
-
-    let host = SyntheticModule::new(
-        "__host",
-        [SyntheticSymbol::function(
-            "host_double",
-            host_double as *const (),
-        )],
-    );
-
-    let lib = Relocator::new()
-        .run(raw)
-        .modules([host])
-        .relocate()
-        .expect("failed to relocate plugin");
-
-    let return_23 = unsafe {
-        lib.get::<extern "C" fn() -> i32>("return_23")
-            .expect("symbol `return_23` not found")
-    };
-    let result = return_23();
-    debug!("return_23() = {}", result);
-
-    // Passing parameters from host to plugin, and getting a value back.
-    let add = unsafe {
-        lib.get::<extern "C" fn(i32, i32) -> i32>("add")
-            .expect("symbol `add` not found")
-    };
-    debug!("add(2, 3) = {}", add(2, 3));
-
-    // Calls another (non-exported) function within the plugin, passing a
-    // parameter to it and returning its result back to us.
-    let add_one = unsafe {
-        lib.get::<extern "C" fn(i32) -> i32>("add_one")
-            .expect("symbol `add_one` not found")
-    };
-    debug!("add_one(41) = {}", add_one(41));
-
-    // Passing a pointer/buffer the host owns for the plugin to read.
-    let sum_buffer = unsafe {
-        lib.get::<extern "C" fn(*const i32, i32) -> i32>("sum_buffer")
-            .expect("symbol `sum_buffer` not found")
-    };
-    let buf: [i32; 4] = [10, 20, 30, 40];
-    debug!("sum_buffer(&buf, 4) = {}", sum_buffer(buf.as_ptr(), 4));
-
-    // The plugin calls back into `host_double`, provided above.
-    let double_via_host = unsafe {
-        lib.get::<extern "C" fn(i32) -> i32>("double_via_host")
-            .expect("symbol `double_via_host` not found")
-    };
-    debug!("double_via_host(9) = {}", double_via_host(9));
 }
 
 fn run_example_lv2_tests() {
@@ -157,12 +72,17 @@ fn run_example_lv2_tests() {
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
-    let _p = embassy_rp::init(Default::default());
+    let p = embassy_rp::init(Default::default());
     unsafe {
         HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
     }
     info!("pico-loader starting");
 
     let executor = EXECUTOR.init(Executor::new());
-    executor.run(|spawner| spawner.spawn(unwrap!(run_task())))
+    executor.run(|spawner| {
+        spawner.spawn(unwrap!(run_task()));
+        spawner.spawn(unwrap!(audio_task(
+            p.PIO0, p.DMA_CH0, p.DMA_CH1, p.PIN_18, p.PIN_19, p.PIN_20
+        )));
+    })
 }
