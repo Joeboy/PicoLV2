@@ -1,0 +1,5 @@
+[target.thumbv8m.main-none-eabihf]
+rustflags = [
+    "-C", "relocation-model=pic",
+    "-C", "target-cpu=cortex-m33",
+]
