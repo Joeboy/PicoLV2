@@ -42,11 +42,14 @@ pub struct TinePiano {
     damping: f32,
     tremolo: f32,
     tremolo_phase: f32,
+    previous_pickup: f32,
+    dc_state: f32,
+    speaker_state: f32,
 }
 
 impl TinePiano {
-    pub const fn new() -> Self { Self { sample_rate: 48000.0, midi: core::ptr::null(), output: core::ptr::null_mut(), sequence_urid: 0, midi_urid: 0, voices: [Voice::new(); VOICES], age: 0, pickup: 0.45, stiffness: 0.5, damping: 0.5, tremolo: 0.15, tremolo_phase: 0.0 } }
-    pub fn initialise(&mut self, rate: f32, sequence: u32, midi: u32) { self.sample_rate = rate; self.sequence_urid = sequence; self.midi_urid = midi; self.midi = core::ptr::null(); self.output = core::ptr::null_mut(); self.voices.fill(Voice::new()); self.age = 0; self.pickup = 0.45; self.stiffness = 0.5; self.damping = 0.5; self.tremolo = 0.15; self.tremolo_phase = 0.0; }
+    pub const fn new() -> Self { Self { sample_rate: 48000.0, midi: core::ptr::null(), output: core::ptr::null_mut(), sequence_urid: 0, midi_urid: 0, voices: [Voice::new(); VOICES], age: 0, pickup: 0.45, stiffness: 0.5, damping: 0.5, tremolo: 0.15, tremolo_phase: 0.0, previous_pickup: 0.0, dc_state: 0.0, speaker_state: 0.0 } }
+    pub fn initialise(&mut self, rate: f32, sequence: u32, midi: u32) { self.sample_rate = rate; self.sequence_urid = sequence; self.midi_urid = midi; self.midi = core::ptr::null(); self.output = core::ptr::null_mut(); self.voices.fill(Voice::new()); self.age = 0; self.pickup = 0.45; self.stiffness = 0.5; self.damping = 0.5; self.tremolo = 0.15; self.tremolo_phase = 0.0; self.previous_pickup = 0.0; self.dc_state = 0.0; self.speaker_state = 0.0; }
     pub fn connect_port(&mut self, port: u32, data: *mut c_void) { match port { 0 => self.midi = data.cast(), 1 => self.output = data.cast(), _ => {} } }
     pub fn activate(&mut self) { self.voices.fill(Voice::new()); }
 
@@ -124,8 +127,13 @@ impl TinePiano {
             self.tremolo_phase += 5.2 / self.sample_rate;
             if self.tremolo_phase >= 1.0 { self.tremolo_phase -= 1.0; }
             let input = mix * MAX_OUTPUT * tremolo;
-            let output = input * (1.0 + self.pickup * input) / (1.0 + self.pickup * input.abs());
-            unsafe { self.output.add(frame as usize).write(output); }
+            let pickup = input * (1.0 + self.pickup * input) / (1.0 + self.pickup * input.abs());
+            let dc_blocked = pickup - self.previous_pickup + self.dc_state * 0.995;
+            self.previous_pickup = pickup;
+            self.dc_state = dc_blocked;
+            let driven = dc_blocked * (1.0 + self.pickup * 0.35 * dc_blocked);
+            self.speaker_state += 0.55 * (driven - self.speaker_state);
+            unsafe { self.output.add(frame as usize).write(self.speaker_state); }
         }
     }
 
