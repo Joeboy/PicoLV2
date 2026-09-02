@@ -19,12 +19,13 @@ struct Voice {
     hammer_phase: f32,
     hammer_phase_increment: f32,
     hammer_level: f32,
+    noise_state: u32,
     gate: bool,
     age: u32,
 }
 
 impl Voice {
-    const fn new() -> Self { Self { note: 0, level: 0.0, target_level: 0.0, attack_increment: 0.0, phase: 0.0, phase_increment: 0.0, tine_level: 0.0, tonebar_phase: 0.0, tonebar_phase_increment: 0.0, tonebar_level: 0.0, hammer_phase: 0.0, hammer_phase_increment: 0.0, hammer_level: 0.0, gate: false, age: 0 } }
+    const fn new() -> Self { Self { note: 0, level: 0.0, target_level: 0.0, attack_increment: 0.0, phase: 0.0, phase_increment: 0.0, tine_level: 0.0, tonebar_phase: 0.0, tonebar_phase_increment: 0.0, tonebar_level: 0.0, hammer_phase: 0.0, hammer_phase_increment: 0.0, hammer_level: 0.0, noise_state: 0x1234_5678, gate: false, age: 0 } }
     fn active(&self) -> bool { self.gate || self.level > 0.00001 }
 }
 
@@ -75,6 +76,7 @@ impl TinePiano {
         voice.tine_level = velocity;
         voice.tonebar_level = velocity * (0.07 + self.stiffness * 0.16);
         voice.hammer_level = velocity * (0.006 + self.stiffness * 0.009);
+        voice.noise_state = u32::from(note).wrapping_mul(0x9e37_79b9).wrapping_add(self.age);
         voice.gate = true;
         voice.age = self.age;
         self.voices[index] = voice;
@@ -95,8 +97,12 @@ impl TinePiano {
                     }
                     let tonebar = sine(voice.tonebar_phase);
                     let hammer = sine(voice.hammer_phase);
+                    voice.noise_state ^= voice.noise_state << 13;
+                    voice.noise_state ^= voice.noise_state >> 17;
+                    voice.noise_state ^= voice.noise_state << 5;
+                    let hammer_noise = (voice.noise_state as f32 / 2_147_483_648.0) - 1.0;
                     mix += voice.level * (fundamental * voice.tine_level + tonebar * voice.tonebar_level)
-                        + hammer * voice.hammer_level;
+                        + (hammer + hammer_noise * 0.35) * voice.hammer_level;
                     voice.phase += voice.phase_increment;
                     if voice.phase >= 1.0 { voice.phase -= 1.0; }
                     voice.tonebar_phase += voice.tonebar_phase_increment;
