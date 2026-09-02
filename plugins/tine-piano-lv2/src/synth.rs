@@ -1,7 +1,7 @@
 use core::ffi::c_void;
 use crate::abi::{pad_size, Lv2AtomEvent, Lv2AtomSequence};
 
-const VOICES: usize = 8;
+const VOICES: usize = 16;
 const MAX_OUTPUT: f32 = 0.35;
 
 #[derive(Clone, Copy)]
@@ -61,7 +61,11 @@ impl TinePiano {
         while octave < 0 { frequency *= 0.5; octave += 1; }
         frequency
     }
-    fn choose_voice(&self) -> usize { self.voices.iter().position(|voice| !voice.active()).unwrap_or_else(|| self.voices.iter().enumerate().min_by_key(|(_, voice)| voice.age).map(|(index, _)| index).unwrap_or(0)) }
+    fn choose_voice(&self) -> usize {
+        self.voices.iter().position(|voice| !voice.gate).unwrap_or_else(|| {
+            self.voices.iter().enumerate().min_by_key(|(_, voice)| voice.age).map(|(index, _)| index).unwrap_or(0)
+        })
+    }
     fn note_on(&mut self, note: u8, velocity: u8) {
         let index = self.choose_voice(); self.age = self.age.wrapping_add(1);
         let velocity = f32::from(velocity) / 127.0;
