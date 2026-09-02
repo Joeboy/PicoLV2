@@ -5,9 +5,9 @@ mod synth;
 
 use abi::{ATOM_SEQUENCE_URI, Lv2Descriptor, Lv2Feature, Lv2Handle, Lv2UridMap, MIDI_EVENT_URI, PLUGIN_URI, URID_MAP_URI};
 use core::ffi::{c_char, c_void, CStr};
-use synth::Rhodes;
+use synth::TinePiano;
 
-static mut RHODES: Rhodes = Rhodes::new();
+static mut TINE_PIANO: TinePiano = TinePiano::new();
 
 extern "C" fn instantiate(_: *const Lv2Descriptor, sample_rate: f64, _: *const c_char, features: *const *const Lv2Feature) -> Lv2Handle {
     if features.is_null() { return core::ptr::null_mut(); }
@@ -23,13 +23,13 @@ extern "C" fn instantiate(_: *const Lv2Descriptor, sample_rate: f64, _: *const c
     let sequence = (map.map)(map.handle, ATOM_SEQUENCE_URI.as_ptr().cast());
     let midi = (map.map)(map.handle, MIDI_EVENT_URI.as_ptr().cast());
     if sequence == 0 || midi == 0 { return core::ptr::null_mut(); }
-    let rhodes = unsafe { &mut *(&raw mut RHODES) };
-    rhodes.initialise(sample_rate as f32, sequence, midi);
-    rhodes as *mut Rhodes as Lv2Handle
+    let tine_piano = unsafe { &mut *(&raw mut TINE_PIANO) };
+    tine_piano.initialise(sample_rate as f32, sequence, midi);
+    tine_piano as *mut TinePiano as Lv2Handle
 }
-extern "C" fn connect_port(handle: Lv2Handle, port: u32, data: *mut c_void) { if let Some(plugin) = unsafe { handle.cast::<Rhodes>().as_mut() } { plugin.connect_port(port, data); } }
-extern "C" fn activate(handle: Lv2Handle) { if let Some(plugin) = unsafe { handle.cast::<Rhodes>().as_mut() } { plugin.activate(); } }
-extern "C" fn run(handle: Lv2Handle, count: u32) { if let Some(plugin) = unsafe { handle.cast::<Rhodes>().as_mut() } { unsafe { plugin.run(count); } } }
+extern "C" fn connect_port(handle: Lv2Handle, port: u32, data: *mut c_void) { if let Some(plugin) = unsafe { handle.cast::<TinePiano>().as_mut() } { plugin.connect_port(port, data); } }
+extern "C" fn activate(handle: Lv2Handle) { if let Some(plugin) = unsafe { handle.cast::<TinePiano>().as_mut() } { plugin.activate(); } }
+extern "C" fn run(handle: Lv2Handle, count: u32) { if let Some(plugin) = unsafe { handle.cast::<TinePiano>().as_mut() } { unsafe { plugin.run(count); } } }
 extern "C" fn noop(_: Lv2Handle) {}
 extern "C" fn extension_data(_: *const c_char) -> *const c_void { core::ptr::null() }
 

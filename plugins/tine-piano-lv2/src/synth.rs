@@ -28,7 +28,7 @@ impl Voice {
     fn active(&self) -> bool { self.gate || self.level > 0.00001 }
 }
 
-pub struct Rhodes {
+pub struct TinePiano {
     sample_rate: f32,
     midi: *const Lv2AtomSequence,
     output: *mut f32,
@@ -43,7 +43,7 @@ pub struct Rhodes {
     tremolo_phase: f32,
 }
 
-impl Rhodes {
+impl TinePiano {
     pub const fn new() -> Self { Self { sample_rate: 48000.0, midi: core::ptr::null(), output: core::ptr::null_mut(), sequence_urid: 0, midi_urid: 0, voices: [Voice::new(); VOICES], age: 0, pickup: 0.45, stiffness: 0.5, damping: 0.5, tremolo: 0.15, tremolo_phase: 0.0 } }
     pub fn initialise(&mut self, rate: f32, sequence: u32, midi: u32) { self.sample_rate = rate; self.sequence_urid = sequence; self.midi_urid = midi; self.midi = core::ptr::null(); self.output = core::ptr::null_mut(); self.voices.fill(Voice::new()); self.age = 0; self.pickup = 0.45; self.stiffness = 0.5; self.damping = 0.5; self.tremolo = 0.15; self.tremolo_phase = 0.0; }
     pub fn connect_port(&mut self, port: u32, data: *mut c_void) { match port { 0 => self.midi = data.cast(), 1 => self.output = data.cast(), _ => {} } }

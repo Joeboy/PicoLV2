@@ -14,7 +14,7 @@ use crate::lv2::{
 };
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 
-static LV2_PLUGIN: &[u8] = include_bytes!("../../plugins/rhodes-lv2/build/pico/plugin.so");
+static LV2_PLUGIN: &[u8] = include_bytes!("../../plugins/tine-piano-lv2/build/pico/plugin.so");
 //static LV2_PLUGIN: &[u8] = include_bytes!("../../plugins/oxynth-lv2/build/pico/plugin.so");
 
 const MIDI_INPUT_PORT: u32 = 0;

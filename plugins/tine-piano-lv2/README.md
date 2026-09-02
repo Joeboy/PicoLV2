@@ -1,4 +1,4 @@
-# Rhodes LV2 POC
+# TinePiano LV2 POC
 
 An allocation-free `#![no_std]` LV2 instrument prototype for the Pico 2 and
 Linux. Each voice combines four damped modal resonators with velocity-shaped

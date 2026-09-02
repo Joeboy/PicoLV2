@@ -1,7 +1,7 @@
 use core::ffi::{c_char, c_void};
 
 pub type Lv2Handle = *mut c_void;
-pub const PLUGIN_URI: &[u8] = b"https://joebutton.co.uk/lv2/rhodes-poc\0";
+pub const PLUGIN_URI: &[u8] = b"https://joebutton.co.uk/lv2/tine-piano\0";
 pub const URID_MAP_URI: &[u8] = b"http://lv2plug.in/ns/ext/urid#map\0";
 pub const ATOM_SEQUENCE_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Sequence\0";
 pub const MIDI_EVENT_URI: &[u8] = b"http://lv2plug.in/ns/ext/midi#MidiEvent\0";

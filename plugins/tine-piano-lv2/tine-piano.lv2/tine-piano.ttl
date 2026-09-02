@@ -5,8 +5,8 @@
 @prefix urid: <http://lv2plug.in/ns/ext/urid#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
-<https://joebutton.co.uk/lv2/rhodes-poc>
+<https://joebutton.co.uk/lv2/tine-piano>
     a lv2:Plugin, lv2:InstrumentPlugin ;
-    doap:name "Rhodes POC" ;
+    doap:name "TinePiano" ;
     lv2:requiredFeature urid:map ;
     lv2:port [ a lv2:InputPort, atom:AtomPort ; atom:bufferType atom:Sequence ; atom:supports midi:MidiEvent ; lv2:designation lv2:control ; lv2:index 0 ; lv2:symbol "midi_in" ; lv2:name "MIDI In" ] , [ a lv2:OutputPort, lv2:AudioPort ; lv2:index 1 ; lv2:symbol "output" ; lv2:name "Output" ] .
