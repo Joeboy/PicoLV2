@@ -12,12 +12,19 @@ struct Voice {
     attack_increment: f32,
     phase: f32,
     phase_increment: f32,
+    tine_level: f32,
+    tonebar_phase: f32,
+    tonebar_phase_increment: f32,
+    tonebar_level: f32,
+    hammer_phase: f32,
+    hammer_phase_increment: f32,
+    hammer_level: f32,
     gate: bool,
     age: u32,
 }
 
 impl Voice {
-    const fn new() -> Self { Self { note: 0, level: 0.0, target_level: 0.0, attack_increment: 0.0, phase: 0.0, phase_increment: 0.0, gate: false, age: 0 } }
+    const fn new() -> Self { Self { note: 0, level: 0.0, target_level: 0.0, attack_increment: 0.0, phase: 0.0, phase_increment: 0.0, tine_level: 0.0, tonebar_phase: 0.0, tonebar_phase_increment: 0.0, tonebar_level: 0.0, hammer_phase: 0.0, hammer_phase_increment: 0.0, hammer_level: 0.0, gate: false, age: 0 } }
     fn active(&self) -> bool { self.gate || self.level > 0.00001 }
 }
 
@@ -61,7 +68,13 @@ impl Rhodes {
         voice.note = note;
         voice.target_level = velocity;
         voice.attack_increment = velocity / (self.sample_rate * 0.003).max(1.0);
-        voice.phase_increment = Self::frequency(note) / self.sample_rate;
+        let frequency = Self::frequency(note);
+        voice.phase_increment = frequency / self.sample_rate;
+        voice.tonebar_phase_increment = frequency * (1.48 + self.stiffness * 0.12) / self.sample_rate;
+        voice.hammer_phase_increment = frequency * (4.5 + self.stiffness * 1.5) / self.sample_rate;
+        voice.tine_level = velocity;
+        voice.tonebar_level = velocity * (0.07 + self.stiffness * 0.16);
+        voice.hammer_level = velocity * (0.006 + self.stiffness * 0.009);
         voice.gate = true;
         voice.age = self.age;
         self.voices[index] = voice;
@@ -70,10 +83,6 @@ impl Rhodes {
     fn midi(&mut self, message: &[u8]) { match message[0] & 0xf0 { 0x90 if message[2] != 0 => self.note_on(message[1], message[2]), 0x80 | 0x90 => self.note_off(message[1]), 0xb0 => match message[1] { 21 => self.pickup = f32::from(message[2]) / 127.0, 22 => self.stiffness = f32::from(message[2]) / 127.0, 23 => self.damping = f32::from(message[2]) / 127.0, 24 => self.tremolo = f32::from(message[2]) / 127.0 * 0.5, 120 | 123 => for voice in &mut self.voices { voice.gate = false }, _ => {} }, _ => {} } }
 
     fn render(&mut self, start: u32, end: u32) {
-        let second_level = 0.10 + self.stiffness * 0.18;
-        let third_level = 0.03 + self.stiffness * 0.10;
-        let second_ratio = 2.0 + self.stiffness * 0.02;
-        let third_ratio = 3.0 + self.stiffness * 0.05;
         let release_decay = 0.99994 + (1.0 - self.damping) * 0.00004;
         for frame in start..end {
             let mut mix = 0.0;
@@ -81,14 +90,22 @@ impl Rhodes {
                 if voice.active() {
                     let phase = voice.phase;
                     let fundamental = sine(phase);
-                    let second = sine(wrap_phase(phase * second_ratio));
-                    let third = sine(wrap_phase(phase * third_ratio));
                     if voice.gate && voice.level < voice.target_level {
                         voice.level = (voice.level + voice.attack_increment).min(voice.target_level);
                     }
-                    mix += voice.level * (fundamental + second * second_level + third * third_level);
+                    let tonebar = sine(voice.tonebar_phase);
+                    let hammer = sine(voice.hammer_phase);
+                    mix += voice.level * (fundamental * voice.tine_level + tonebar * voice.tonebar_level)
+                        + hammer * voice.hammer_level;
                     voice.phase += voice.phase_increment;
                     if voice.phase >= 1.0 { voice.phase -= 1.0; }
+                    voice.tonebar_phase += voice.tonebar_phase_increment;
+                    if voice.tonebar_phase >= 1.0 { voice.tonebar_phase -= 1.0; }
+                    voice.hammer_phase += voice.hammer_phase_increment;
+                    if voice.hammer_phase >= 1.0 { voice.hammer_phase -= 1.0; }
+                    voice.tine_level *= if voice.gate { 0.9999995 } else { 0.99994 };
+                    voice.tonebar_level *= if voice.gate { 0.999997 } else { 0.99995 };
+                    voice.hammer_level *= 0.99935;
                     voice.level *= if voice.gate { 0.999995 } else { release_decay };
                     if voice.level < 0.00001 { voice.level = 0.0; voice.gate = false; }
                 }
@@ -123,13 +140,11 @@ impl Rhodes {
 }
 
 fn sine(phase: f32) -> f32 {
-    let sign = if phase < 0.5 { 1.0 } else { -1.0 };
-    let phase = if phase < 0.5 { phase } else { phase - 0.5 };
-    let parabola = 8.0 * phase * (1.0 - 2.0 * phase);
-    sign * parabola * (0.225 + 0.775 * parabola)
-}
-
-fn wrap_phase(mut phase: f32) -> f32 {
-    while phase >= 1.0 { phase -= 1.0; }
-    phase
+    let mut x = phase * (2.0 * core::f32::consts::PI);
+    if x > core::f32::consts::PI { x -= 2.0 * core::f32::consts::PI; }
+    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    x = x.abs();
+    if x > 0.5 * core::f32::consts::PI { x = core::f32::consts::PI - x; }
+    let x2 = x * x;
+    sign * x * (1.0 - x2 / 6.0 + x2 * x2 / 120.0 - x2 * x2 * x2 / 5040.0)
 }
