@@ -39,7 +39,7 @@ OUT := $(BUILD_DIR)/plugin.so
 # to make hosts like jalv find it: `jalv https://joebutton.co.uk/lv2/square-synth-poc`.
 BUNDLE_DIR := square-synth.lv2
 
-.PHONY: all pico linux bundle clean info
+.PHONY: all pico linux bundle test clean info
 
 all: $(OUT)
 
@@ -52,6 +52,12 @@ linux:
 bundle:
 	$(MAKE) TARGET=linux
 	cp build/linux/plugin.so $(BUNDLE_DIR)/plugin.so
+
+SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c
+
+test: bundle $(SMOKE_TEST)
+	cc -std=c11 -Wall -Wextra -Werror -o build/linux/smoke $(SMOKE_TEST) -ldl -lm
+	LV2_PATH="$(CURDIR)" ./build/linux/smoke --expect-frequency 440 ./build/linux/plugin.so
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
