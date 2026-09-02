@@ -42,7 +42,7 @@ SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c
 
 test: bundle $(SMOKE_TEST)
 	cc -std=c11 -Wall -Wextra -Werror -o build/linux/smoke $(SMOKE_TEST) -ldl -lm
-	LV2_PATH="$(CURDIR)" ./build/linux/smoke ./build/linux/plugin.so
+	LV2_PATH="$(CURDIR)" ./build/linux/smoke --require-release ./build/linux/plugin.so
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

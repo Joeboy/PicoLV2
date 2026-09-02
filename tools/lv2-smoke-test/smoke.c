@@ -9,7 +9,7 @@
 typedef struct Feature { const char *uri; void *data; } Feature;
 typedef struct UridMap { void *handle; uint32_t (*map)(void *, const char *); } UridMap;
 typedef struct Atom { uint32_t size; uint32_t type; } Atom;
-typedef struct Sequence { Atom atom; uint32_t unit; uint32_t pad; unsigned char data[32]; } Sequence;
+typedef struct Sequence { Atom atom; uint32_t unit; uint32_t pad; unsigned char data[64]; } Sequence;
 typedef struct Event { int64_t frames; Atom body; unsigned char midi[3]; } Event;
 typedef void *(*Instantiate)(const void *, double, const char *, const Feature *const *);
 typedef void (*ConnectPort)(void *, uint32_t, void *);
@@ -24,21 +24,50 @@ static uint32_t map_uri(void *handle, const char *uri) {
     return 0;
 }
 
-/* Build one timestamp-zero MIDI event in the LV2 Atom Sequence buffer. */
-static void set_note(Sequence *sequence, uint32_t midi_urid, unsigned char status) {
-    Event event = { .frames = 0, .body = { .size = 3, .type = midi_urid }, .midi = { status, 69, 100 } };
+/* Build note-on and note-off events in the LV2 Atom Sequence buffer. */
+static void set_note(Sequence *sequence, uint32_t midi_urid) {
+    Event on = { .frames = 0, .body = { .size = 3, .type = midi_urid }, .midi = { 0x90, 69, 100 } };
+    Event off = { .frames = 2400, .body = { .size = 3, .type = midi_urid }, .midi = { 0x80, 69, 0 } };
     sequence->atom.type = 1;
-    sequence->atom.size = 8 + sizeof(event);
-    memcpy(sequence->data, &event, sizeof(event));
+    sequence->atom.size = 8 + sizeof(on) + sizeof(off);
+    memcpy(sequence->data, &on, sizeof(on));
+    memcpy(sequence->data + sizeof(on), &off, sizeof(off));
+}
+
+/* Estimate pitch from the strongest short-lag autocorrelation. */
+static double estimate_frequency(const float *samples, size_t count, double sample_rate) {
+    double best_score = -INFINITY;
+    size_t best_lag = 0;
+    for (size_t lag = 96; lag <= 120; ++lag) {
+        double score = 0.0;
+        for (size_t index = 0; index + lag < count; ++index) {
+            score += samples[index] * samples[index + lag];
+        }
+        if (score > best_score) {
+            best_score = score;
+            best_lag = lag;
+        }
+    }
+    return best_lag == 0 ? 0.0 : sample_rate / best_lag;
 }
 
 int main(int argc, char **argv) {
     /* Pitch checking is optional because complex plugins may not be sinusoidal. */
-    int check_pitch = argc == 4 && strcmp(argv[1], "--expect-frequency") == 0;
-    double expected_frequency = check_pitch ? strtod(argv[2], NULL) : 0.0;
-    const char *plugin_path = check_pitch ? NULL : (argc == 2 ? argv[1] : NULL);
-    if (check_pitch) plugin_path = argc == 4 ? argv[3] : NULL;
-    if (!plugin_path) return fprintf(stderr, "usage: %s [--expect-frequency hz] plugin.so\n", argv[0]), 2;
+    int argument = 1;
+    int require_release = 0;
+    int check_pitch = 0;
+    double expected_frequency = 0.0;
+    if (argument < argc && strcmp(argv[argument], "--require-release") == 0) {
+        require_release = 1;
+        argument++;
+    }
+    if (argument + 2 < argc && strcmp(argv[argument], "--expect-frequency") == 0) {
+        check_pitch = 1;
+        expected_frequency = strtod(argv[argument + 1], NULL);
+        argument += 2;
+    }
+    const char *plugin_path = argument + 1 == argc ? argv[argument] : NULL;
+    if (!plugin_path) return fprintf(stderr, "usage: %s [--require-release] [--expect-frequency hz] plugin.so\n", argv[0]), 2;
     void *library = dlopen(plugin_path, RTLD_NOW);
     if (!library) return fprintf(stderr, "%s\n", dlerror()), 2;
     const Descriptor *(*get_descriptor)(uint32_t) = dlsym(library, "lv2_descriptor");
@@ -52,23 +81,27 @@ int main(int argc, char **argv) {
     if (!instance) return fprintf(stderr, "plugin failed to instantiate\n"), 1;
     Sequence sequence = { 0 };
     float output[4800] = { 0 };
-    set_note(&sequence, 2, 0x90);
+    set_note(&sequence, 2);
     descriptor->connect(instance, 0, &sequence);
     descriptor->connect(instance, 1, output);
     descriptor->activate(instance);
     descriptor->run(instance, 4800);
 
-    /* Energy catches silent plugins; zero crossings provide a lightweight pitch check. */
+    /* Energy catches silent plugins; autocorrelation provides a lightweight pitch check. */
     double energy = 0.0;
-    unsigned crossings = 0;
+    double first_half_energy = 0.0;
+    double second_half_energy = 0.0;
     for (size_t index = 0; index < 4800; ++index) {
         energy += output[index] * output[index];
-        if (index > 0 && output[index - 1] <= 0.0f && output[index] > 0.0f) crossings++;
+        if (index < 2400) first_half_energy += output[index] * output[index];
+        else second_half_energy += output[index] * output[index];
     }
     double rms = sqrt(energy / 4800.0);
-    double frequency = crossings * 48000.0 / 4800.0;
-    if (rms < 0.001 || (check_pitch && (frequency < expected_frequency - 10.0 || frequency > expected_frequency + 10.0))) {
-        fprintf(stderr, "unexpected A4 output: rms=%f crossings=%u frequency=%f\n", rms, crossings, frequency);
+    double first_half_rms = sqrt(first_half_energy / 2400.0);
+    double second_half_rms = sqrt(second_half_energy / 2400.0);
+    double frequency = estimate_frequency(output, 2400, 48000.0);
+    if (rms < 0.001 || first_half_rms < 0.001 || (require_release && second_half_rms < 0.00001) || (check_pitch && (frequency < expected_frequency - 10.0 || frequency > expected_frequency + 10.0))) {
+        fprintf(stderr, "unexpected output: rms=%f first_half_rms=%f second_half_rms=%f frequency=%f\n", rms, first_half_rms, second_half_rms, frequency);
         return 1;
     }
     printf("LV2 smoke test: %s, rms=%f", descriptor->uri, rms);
