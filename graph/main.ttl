@@ -1,0 +1,48 @@
+@prefix atom: <http://lv2plug.in/ns/ext/atom#> .
+@prefix ingen: <http://drobilla.net/ns/ingen#> .
+@prefix lv2: <http://lv2plug.in/ns/lv2core#> .
+@prefix midi: <http://lv2plug.in/ns/ext/midi#> .
+@prefix urid: <http://lv2plug.in/ns/ext/urid#> .
+
+<> a ingen:Graph, lv2:Plugin ;
+    lv2:port [
+        a lv2:OutputPort, lv2:AudioPort ;
+        lv2:index 0 ;
+        lv2:symbol "audio_out" ;
+        lv2:name "Audio Out" ;
+    ] ;
+    ingen:block <tine-piano> , <delay> .
+
+<tine-piano> a ingen:Block ;
+    lv2:prototype <https://joebutton.co.uk/lv2/tine-piano> ;
+    lv2:port [
+        a lv2:InputPort, atom:AtomPort ;
+        atom:bufferType atom:Sequence ;
+        atom:supports midi:MidiEvent ;
+        lv2:index 0 ;
+        lv2:symbol "midi_in" ;
+        lv2:name "MIDI In" ;
+    ] , [
+        a lv2:OutputPort, lv2:AudioPort ;
+        lv2:index 1 ;
+        lv2:symbol "output" ;
+        lv2:name "Output" ;
+    ] .
+
+<delay> a ingen:Block ;
+    lv2:prototype <https://joebutton.co.uk/lv2/delay-poc> ;
+    lv2:port [
+        a lv2:InputPort, lv2:AudioPort ;
+        lv2:index 0 ;
+        lv2:symbol "in" ;
+        lv2:name "In" ;
+    ] , [
+        a lv2:OutputPort, lv2:AudioPort ;
+        lv2:index 1 ;
+        lv2:symbol "out" ;
+        lv2:name "Out" ;
+    ] .
+
+[] a ingen:Arc ;
+    ingen:tail <tine-piano/output> ;
+    ingen:head <delay/in> .

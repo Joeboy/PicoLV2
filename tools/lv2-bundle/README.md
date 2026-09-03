@@ -25,6 +25,7 @@ LV2 URI, Pico binary, and TTL metadata file:
 ```sh
 lv2-bundle pack \
   --output plugins.bundle \
+  --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
     plugins/tine-piano/build/pico/plugin.so \
     plugins/tine-piano/tine-piano.lv2/tine-piano.ttl \
@@ -37,10 +38,13 @@ lv2-bundle pack \
 ```
 
 Plugin URIs must be unique. Binary and metadata files are stored unchanged. The
-bundle has a 512 KiB maximum size.
-
-As of now the actual connection / routing of plugins is done in the host. The
-plan is to allow this to be specified when building the bundle.
+bundle has a 512 KiB maximum size. `--ingen` accepts Ingen's serialized Turtle
+graph (`main.ttl`), reading `ingen:Block`, `lv2:prototype`, and
+`ingen:Arc`/`ingen:tail`/`ingen:head` statements. The packer converts this to
+the compact `PICO GRP` payload used on the Pico. Blocks are emitted in the
+Turtle order and must already be topologically ordered. The current host uses
+the first audio input/output on each block and renders the highest-index sink;
+control-port arcs and multi-port routing are not yet supported.
 
 ## 3. Build the Pico firmware ELF and convert to a raw binary
 

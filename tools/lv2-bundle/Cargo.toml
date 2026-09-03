@@ -6,3 +6,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 lv2-bundle-format = { path = "../lv2-bundle-format" }
+rio_api = "0.8.5"
+rio_turtle = "0.8.5"
+oxiri = "0.2.11"

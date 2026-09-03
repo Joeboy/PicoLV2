@@ -2,7 +2,7 @@ use core::ffi::{CStr, c_char, c_void};
 
 use defmt::info;
 use elf_loader::{Loader, Relocator, input::ElfBinary};
-use heapless::spsc::{Consumer, Producer};
+use heapless::{Vec, spsc::{Consumer, Producer}};
 use lv2_bundle_format::{Bundle, FLASH_ADDRESS, MAX_SIZE};
 
 use crate::audio_buffer::{
@@ -16,15 +16,13 @@ use crate::lv2::{
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 use crate::plugin_metadata::{PluginMetadata, PortKind};
 
-// const SYNTH_URI: &[u8] = b"https://joebutton.co.uk/lv2/tine-piano";
-const SYNTH_URI: &[u8] = b"https://joebutton.co.uk/lv2/string-synth";
-const DELAY_URI: &[u8] = b"https://joebutton.co.uk/lv2/delay-poc";
+const MAX_NODES: usize = 8;
+const MAX_CONTROLS: usize = 8;
 
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
-static mut SYNTH_AUDIO_BUFFER: [f32; BLOCK_SIZE] = [0.0; BLOCK_SIZE];
-static mut DELAY_TIME: f32 = 0.100; // 100ms
-static mut DELAY_FEEDBACK: f32 = 0.75; // high feedback for testing
-static mut DELAY_DRY_WET: f32 = 0.5;
+static mut NODE_INPUT_AUDIO: [[f32; BLOCK_SIZE]; MAX_NODES] = [[0.0; BLOCK_SIZE]; MAX_NODES];
+static mut NODE_OUTPUT_AUDIO: [[f32; BLOCK_SIZE]; MAX_NODES] = [[0.0; BLOCK_SIZE]; MAX_NODES];
+static mut NODE_CONTROLS: [[f32; MAX_CONTROLS]; MAX_NODES] = [[0.0; MAX_CONTROLS]; MAX_NODES];
 
 extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
     if uri.is_null() {
@@ -102,6 +100,12 @@ pub struct PluginInstance {
     handle: *mut c_void,
 }
 
+struct PluginNode {
+    instance: PluginInstance,
+    input_port: Option<u32>,
+    output_port: Option<u32>,
+}
+
 impl PluginInstance {
     pub fn connect_port(&mut self, port: u32, data_location: *mut c_void) {
         (self.descriptor.connect_port)(self.handle, port, data_location);
@@ -124,9 +128,8 @@ impl PluginInstance {
 /// Manages loaded LV2 plugin instances and bridges queued MIDI events
 /// through the audio processing pipeline.
 pub struct PluginHost {
-    synth: PluginInstance,
-    delay: PluginInstance,
-    delay_output_port: u32,
+    nodes: Vec<PluginNode, MAX_NODES>,
+    output_node: usize,
     midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
     pending_midi: Option<MidiEvent>,
     timeline_origin_micros: u64,
@@ -139,61 +142,69 @@ impl PluginHost {
             core::slice::from_raw_parts(FLASH_ADDRESS as *const u8, MAX_SIZE)
         };
         let bundle = Bundle::parse(bundle_bytes).expect("invalid plugin bundle");
-        let synth_entry = bundle.find(SYNTH_URI).expect("synth plugin missing from bundle");
-        let delay_entry = bundle.find(DELAY_URI).expect("delay plugin missing from bundle");
-        let synth_binary = PluginBinary::load("synth-plugin.so", synth_entry.binary);
-        let delay_binary = PluginBinary::load("delay-plugin.so", delay_entry.binary);
-        let synth_metadata = PluginMetadata::parse(synth_entry.metadata).expect("invalid synth metadata");
-        let delay_metadata = PluginMetadata::parse(delay_entry.metadata).expect("invalid delay metadata");
+        let graph = bundle.graph().expect("invalid plugin graph");
+        assert!(graph.node_count as usize <= MAX_NODES, "too many graph nodes");
 
         let features_ptr = core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature;
 
-        let mut synth = synth_binary.instantiate(SAMPLE_RATE as f64, features_ptr);
-        let mut delay = delay_binary.instantiate(SAMPLE_RATE as f64, features_ptr);
-
-        synth.connect_port(
-            synth_metadata.port(PortKind::AtomInput, 0).expect("synth MIDI port missing").index,
-            core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
-        );
-        synth.connect_port(
-            synth_metadata.port(PortKind::AudioOutput, 0).expect("synth output port missing").index,
-            core::ptr::addr_of_mut!(SYNTH_AUDIO_BUFFER) as *mut c_void,
-        );
-        synth.activate();
-
-        delay.connect_port(
-            delay_metadata.port(PortKind::AudioInput, 0).expect("delay input port missing").index,
-            core::ptr::addr_of_mut!(SYNTH_AUDIO_BUFFER) as *mut c_void,
-        );
-        let delay_output = delay_metadata.port(PortKind::AudioOutput, 0).expect("delay output port missing");
-        let delay_controls = [
-            delay_metadata.port(PortKind::ControlInput, 0).expect("delay control port missing"),
-            delay_metadata.port(PortKind::ControlInput, 1).expect("delay control port missing"),
-            delay_metadata.port(PortKind::ControlInput, 2).expect("delay control port missing"),
-        ];
-        unsafe {
-            DELAY_TIME = delay_controls[0].default.expect("delay time default missing");
-            DELAY_FEEDBACK = delay_controls[1].default.expect("delay feedback default missing");
-            DELAY_DRY_WET = delay_controls[2].default.expect("delay dry/wet default missing");
+        let mut nodes = Vec::new();
+        for node_index in 0..graph.node_count {
+            let node_uri = graph.node(node_index).expect("invalid graph node").uri;
+            let entry = bundle.find(node_uri).expect("graph plugin missing from bundle");
+            let binary = PluginBinary::load("graph-plugin.so", entry.binary);
+            let metadata = PluginMetadata::parse(entry.metadata).expect("invalid graph metadata");
+            let mut instance = binary.instantiate(SAMPLE_RATE as f64, features_ptr);
+            let input = metadata.port(PortKind::AudioInput, 0).map(|port| port.index);
+            let output = metadata.port(PortKind::AudioOutput, 0).map(|port| port.index);
+            if let Some(port) = metadata.port(PortKind::AtomInput, 0) {
+                instance.connect_port(port.index, core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void);
+            }
+            if let Some(port) = input {
+                let buffer = unsafe { core::ptr::addr_of_mut!(NODE_INPUT_AUDIO[node_index as usize]) };
+                instance.connect_port(port, buffer as *mut c_void);
+            }
+            if let Some(port) = output {
+                let buffer = unsafe { core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[node_index as usize]) };
+                instance.connect_port(port, buffer as *mut c_void);
+            }
+            let mut control_index = 0;
+            while let Some(port) = metadata.port(PortKind::ControlInput, control_index) {
+                assert!(control_index < MAX_CONTROLS, "too many graph controls");
+                unsafe { NODE_CONTROLS[node_index as usize][control_index] = port.default.unwrap_or(0.0); }
+                let control = unsafe {
+                    core::ptr::addr_of_mut!(NODE_CONTROLS[node_index as usize][control_index])
+                };
+                instance.connect_port(port.index, control as *mut c_void);
+                control_index += 1;
+            }
+            instance.activate();
+            nodes
+                .push(PluginNode { instance, input_port: input, output_port: output })
+                .unwrap_or_else(|_| panic!("too many graph nodes"));
         }
-        delay.connect_port(
-            delay_controls[0].index,
-            core::ptr::addr_of_mut!(DELAY_TIME) as *mut c_void,
-        );
-        delay.connect_port(
-            delay_controls[1].index,
-            core::ptr::addr_of_mut!(DELAY_FEEDBACK) as *mut c_void,
-        );
-        delay.connect_port(
-            delay_controls[2].index,
-            core::ptr::addr_of_mut!(DELAY_DRY_WET) as *mut c_void,
-        );
-        delay.activate();
+        for edge_index in 0..graph.edge_count {
+            let edge = graph.edge(edge_index).expect("invalid graph edge");
+            assert!((edge.source_node as usize) < nodes.len() && (edge.destination_node as usize) < nodes.len(), "graph node reference out of range");
+            assert!(edge.source_node < edge.destination_node, "graph nodes must be topologically ordered");
+            nodes[edge.source_node as usize].output_port.expect("graph source has no audio output");
+            let destination_port = nodes[edge.destination_node as usize].input_port.expect("graph destination has no audio input");
+            assert!(edge.source_port == 0 && edge.destination_port == 0, "only first audio ports are supported");
+            let buffer = unsafe {
+                core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[edge.source_node as usize])
+            };
+            nodes[edge.destination_node as usize]
+                .instance
+                .connect_port(destination_port, buffer as *mut c_void);
+        }
+        let mut has_outgoing = [false; MAX_NODES];
+        for edge_index in 0..graph.edge_count {
+            has_outgoing[graph.edge(edge_index).unwrap().source_node as usize] = true;
+        }
+        let output_node = (0..nodes.len()).rev().find(|index| !has_outgoing[*index]).expect("graph has no output");
 
         Self {
-            synth,
-            delay,
-            delay_output_port: delay_output.index,
+            nodes,
+            output_node,
             midi_consumer,
             pending_midi: None,
             timeline_origin_micros: embassy_time::Instant::now().as_micros(),
@@ -234,14 +245,15 @@ impl PluginHost {
         }
         midi_sequence.set_event_count(event_count);
 
-        // 1. Run synth plugin instance to render into synth intermediate buffer
-        self.synth.run(BLOCK_SIZE as u32);
-
-        // 2. Connect delay plugin output to the target audio buffer
-        self.delay.connect_port(self.delay_output_port, output as *mut c_void);
-
-        // 3. Run delay plugin instance to render into final output buffer
-        self.delay.run(BLOCK_SIZE as u32);
+        for node in &mut self.nodes {
+            node.instance.run(BLOCK_SIZE as u32);
+        }
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                NODE_OUTPUT_AUDIO[self.output_node].as_ptr(), output,
+                BLOCK_SIZE,
+            );
+        }
 
         self.block_start_frame += BLOCK_SIZE as u64;
     }
