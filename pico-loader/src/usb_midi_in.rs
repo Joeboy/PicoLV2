@@ -12,7 +12,7 @@ use embassy_usb_host::handler::{BusRoute, EnumerationInfo, RegisterError};
 use embassy_usb_host::{BusState, bus};
 use heapless::spsc::Producer;
 
-use crate::midi::{MIDI_QUEUE_SIZE, MidiEvent};
+use crate::midi::MidiEvent;
 
 const MAX_DESCRIPTOR_SIZE: usize = 512;
 static USB_BUS_STATE: BusState = BusState::new();
@@ -83,7 +83,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 pub async fn usb_midi_task(
     usb: Peri<'static, USB>,
-    mut producer: Producer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
+    mut producer: Producer<'static, MidiEvent>,
 ) -> ! {
     let driver = embassy_rp::usb::host::Driver::new(usb, Irqs);
     let (mut controller, bus) = bus(driver, &USB_BUS_STATE);

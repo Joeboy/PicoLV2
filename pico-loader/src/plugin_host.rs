@@ -6,7 +6,7 @@ use heapless::{Vec, spsc::{Consumer, Producer}};
 use lv2_bundle_format::{Bundle, FLASH_ADDRESS, MAX_SIZE};
 
 use crate::audio_buffer::{
-    AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
+    AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
     block_mut_ptr,
 };
 use crate::log_heap;
@@ -14,7 +14,7 @@ use crate::lv2::{
     ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap, MIDI_EVENT_URI,
     MIDI_EVENT_URID, URID_MAP_URI,
 };
-use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
+use crate::midi::{Lv2MidiSequence, MidiEvent};
 use crate::plugin_metadata::{PluginMetadata, PortKind};
 
 const MAX_NODES: usize = 8;
@@ -135,14 +135,14 @@ impl PluginInstance {
 pub struct PluginHost {
     nodes: Vec<PluginNode, MAX_NODES>,
     output_node: usize,
-    midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
+    midi_consumer: Consumer<'static, MidiEvent>,
     pending_midi: Option<MidiEvent>,
     timeline_origin_micros: u64,
     block_start_frame: u64,
 }
 
 impl PluginHost {
-    pub fn load(midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>) -> Self {
+    pub fn load(midi_consumer: Consumer<'static, MidiEvent>) -> Self {
         let bundle_bytes = unsafe {
             core::slice::from_raw_parts(FLASH_ADDRESS as *const u8, MAX_SIZE)
         };
@@ -274,9 +274,9 @@ impl PluginHost {
 
 #[embassy_executor::task]
 pub async fn plugin_host_task(
-    midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
-    mut free_consumer: Consumer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
-    mut ready_producer: Producer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
+    midi_consumer: Consumer<'static, MidiEvent>,
+    mut free_consumer: Consumer<'static, AudioBlockIndex>,
+    mut ready_producer: Producer<'static, AudioBlockIndex>,
 ) -> ! {
     info!("Starting LV2 plugin host task");
     let mut plugin = PluginHost::load(midi_consumer);

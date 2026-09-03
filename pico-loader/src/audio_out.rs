@@ -7,9 +7,7 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIN_18, PIN_19, PIN_20, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use {defmt_rtt as _, panic_probe as _};
 
-use crate::audio_buffer::{
-    AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr,
-};
+use crate::audio_buffer::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
 use crate::i2s_ping_pong::{PioI2sOut, PioI2sOutProgram};
 use heapless::spsc::{Consumer, Producer};
 
@@ -33,8 +31,8 @@ pub async fn audio_task(
     pin18: Peri<'static, PIN_18>,
     pin19: Peri<'static, PIN_19>,
     pin20: Peri<'static, PIN_20>,
-    mut ready_consumer: Consumer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
-    mut free_producer: Producer<'static, AudioBlockIndex, AUDIO_QUEUE_SIZE>,
+    mut ready_consumer: Consumer<'static, AudioBlockIndex>,
+    mut free_producer: Producer<'static, AudioBlockIndex>,
 ) {
     info!("Starting I2S audio output task");
 
