@@ -103,3 +103,12 @@ probe-rs download \
   pico-image.bin && \
 probe-rs reset --chip RP235x
 ```
+
+## Bonus: debugging with a debug probe
+
+```sh
+probe-rs attach \
+  --chip RP235x \
+  --rtt-scan-memory \
+  pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader
+```
