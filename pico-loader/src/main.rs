@@ -15,7 +15,7 @@ use audio_buffer::{AUDIO_BLOCK_COUNT, FREE_AUDIO_BLOCKS, READY_AUDIO_BLOCKS};
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_rp::multicore::{Stack, spawn_core1};
-use embedded_alloc::LlffHeap as Heap;
+use embedded_alloc::TlsfHeap as Heap;
 use heapless::spsc::Queue;
 use midi::MIDI_QUEUE;
 use plugin_host::plugin_host_task;
