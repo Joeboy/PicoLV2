@@ -44,12 +44,13 @@ If anybody else wants to work on the hardware part I'm very open to collaborate.
 
 What exists so far is:
 
-- Four LV2 plugins that can be built or run for Linux or the Pico 2. Three in
-  Rust, one in C.
-
-  Rust
-- `pico-loader/` A Rust / [Embassy](https://embassy.dev/) project that can run
-  the plugins.
+- Several LV2 [./plugins/README.md](plugins) that can be built or run for Linux
+  or the Pico 2. Some in Rust, some in C. I don't claim they're particularly
+  good but they're handy for testing.
+- [./pico-loader/](pico-loader) - A Rust / [Embassy](https://embassy.dev/)
+  firmware project that can run the plugins on the Pico.
+- [./tools/lv2-bundlelv2-bundle/](lv2-bundle)` - A tool for bundling plugins
+  with the firmware, into an image that can be flashed onto the Pico
 - USB midi input and audio output for the Pico
 
 ## TODO
@@ -58,8 +59,6 @@ What exists so far is:
   but being able to do effects is the real goal.
 - Experiment with existing LV2 plugins. Hopefully some will work with minimal
   porting, but we'll see.
-- Proper port usage, the host just assumes port 0 is USB input and port 1 is
-  audio out.
 - Connections. Some way of connecting up a
   [DAG](https://en.wikipedia.org/wiki/Directed_acyclic_graph) of plugins
 - At some point I'm going to have to figure out what to do about controls. Maybe
@@ -68,9 +67,3 @@ What exists so far is:
 - Latency is currently poor, 50ms or something. I don't care much yet as it's
   still an experiment, but it could probably be improved by reducing buffer
   sizes etc.
-- Currently the way to run a plugin on the Pico is to `include_bytes()` it in
-  the host source and rebuild, which is not great. Other options could be:
-  - Some way to USB-flash plugins onto the Pico without flashing the host
-  - Adding an SD card to the Pico
-  - A way to update the plugin(s) flashed to the Pico without the rigmarole of a
-    full host rebuild
