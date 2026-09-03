@@ -2,6 +2,7 @@ use core::ffi::c_void;
 use crate::abi::{pad_size, Lv2AtomEvent, Lv2AtomSequence};
 
 const VOICES: usize = 16;
+const TAILS: usize = 4;
 const MAX_OUTPUT: f32 = 0.35;
 
 #[derive(Clone, Copy)]
@@ -36,6 +37,7 @@ pub struct TinePiano {
     sequence_urid: u32,
     midi_urid: u32,
     voices: [Voice; VOICES],
+    tails: [Voice; TAILS],
     age: u32,
     pickup: f32,
     stiffness: f32,
@@ -48,10 +50,10 @@ pub struct TinePiano {
 }
 
 impl TinePiano {
-    pub const fn new() -> Self { Self { sample_rate: 48000.0, midi: core::ptr::null(), output: core::ptr::null_mut(), sequence_urid: 0, midi_urid: 0, voices: [Voice::new(); VOICES], age: 0, pickup: 0.45, stiffness: 0.5, damping: 0.5, tremolo: 0.15, tremolo_phase: 0.0, previous_pickup: 0.0, dc_state: 0.0, speaker_state: 0.0 } }
-    pub fn initialise(&mut self, rate: f32, sequence: u32, midi: u32) { self.sample_rate = rate; self.sequence_urid = sequence; self.midi_urid = midi; self.midi = core::ptr::null(); self.output = core::ptr::null_mut(); self.voices.fill(Voice::new()); self.age = 0; self.pickup = 0.45; self.stiffness = 0.5; self.damping = 0.5; self.tremolo = 0.15; self.tremolo_phase = 0.0; self.previous_pickup = 0.0; self.dc_state = 0.0; self.speaker_state = 0.0; }
+    pub const fn new() -> Self { Self { sample_rate: 48000.0, midi: core::ptr::null(), output: core::ptr::null_mut(), sequence_urid: 0, midi_urid: 0, voices: [Voice::new(); VOICES], tails: [Voice::new(); TAILS], age: 0, pickup: 0.45, stiffness: 0.5, damping: 0.5, tremolo: 0.15, tremolo_phase: 0.0, previous_pickup: 0.0, dc_state: 0.0, speaker_state: 0.0 } }
+    pub fn initialise(&mut self, rate: f32, sequence: u32, midi: u32) { self.sample_rate = rate; self.sequence_urid = sequence; self.midi_urid = midi; self.midi = core::ptr::null(); self.output = core::ptr::null_mut(); self.voices.fill(Voice::new()); self.tails.fill(Voice::new()); self.age = 0; self.pickup = 0.45; self.stiffness = 0.5; self.damping = 0.5; self.tremolo = 0.15; self.tremolo_phase = 0.0; self.previous_pickup = 0.0; self.dc_state = 0.0; self.speaker_state = 0.0; }
     pub fn connect_port(&mut self, port: u32, data: *mut c_void) { match port { 0 => self.midi = data.cast(), 1 => self.output = data.cast(), _ => {} } }
-    pub fn activate(&mut self) { self.voices.fill(Voice::new()); }
+    pub fn activate(&mut self) { self.voices.fill(Voice::new()); self.tails.fill(Voice::new()); }
 
     fn frequency(note: u8) -> f32 {
         const RATIOS: [f32; 12] = [
@@ -69,8 +71,21 @@ impl TinePiano {
             self.voices.iter().enumerate().min_by_key(|(_, voice)| voice.age).map(|(index, _)| index).unwrap_or(0)
         })
     }
+    // Stealing a still-sounding voice for a new note would otherwise clobber its
+    // phase/level state mid-transient, producing an audible click; fade it out
+    // in a small tail pool instead so the cutover is inaudible.
+    fn steal_to_tail(&mut self, voice: Voice) {
+        if !voice.active() { return; }
+        let mut voice = voice;
+        voice.gate = false;
+        let index = self.tails.iter().position(|tail| !tail.active()).unwrap_or_else(|| {
+            self.tails.iter().enumerate().min_by_key(|(_, tail)| tail.age).map(|(index, _)| index).unwrap_or(0)
+        });
+        self.tails[index] = voice;
+    }
     fn note_on(&mut self, note: u8, velocity: u8) {
         let index = self.choose_voice(); self.age = self.age.wrapping_add(1);
+        self.steal_to_tail(self.voices[index]);
         let velocity = f32::from(velocity) / 127.0;
         let mut voice = Voice::new();
         voice.note = note;
@@ -91,37 +106,44 @@ impl TinePiano {
     fn note_off(&mut self, note: u8) { for voice in &mut self.voices { if voice.note == note { voice.gate = false; } } }
     fn midi(&mut self, message: &[u8]) { match message[0] & 0xf0 { 0x90 if message[2] != 0 => self.note_on(message[1], message[2]), 0x80 | 0x90 => self.note_off(message[1]), 0xb0 => match message[1] { 21 => self.pickup = f32::from(message[2]) / 127.0, 22 => self.stiffness = f32::from(message[2]) / 127.0, 23 => self.damping = f32::from(message[2]) / 127.0, 24 => self.tremolo = f32::from(message[2]) / 127.0 * 0.5, 120 | 123 => for voice in &mut self.voices { voice.gate = false }, _ => {} }, _ => {} } }
 
+    fn process_voice(voice: &mut Voice, release_decay: f32) -> f32 {
+        if !voice.active() { return 0.0; }
+        let phase = voice.phase;
+        let fundamental = sine(phase);
+        if voice.gate && voice.level < voice.target_level {
+            voice.level = (voice.level + voice.attack_increment).min(voice.target_level);
+        }
+        let tonebar = sine(voice.tonebar_phase);
+        let hammer = sine(voice.hammer_phase);
+        voice.noise_state ^= voice.noise_state << 13;
+        voice.noise_state ^= voice.noise_state >> 17;
+        voice.noise_state ^= voice.noise_state << 5;
+        let hammer_noise = (voice.noise_state as f32 / 2_147_483_648.0) - 1.0;
+        let contribution = voice.level * (fundamental * voice.tine_level + tonebar * voice.tonebar_level)
+            + (hammer + hammer_noise * 0.35) * voice.hammer_level;
+        voice.phase += voice.phase_increment;
+        if voice.phase >= 1.0 { voice.phase -= 1.0; }
+        voice.tonebar_phase += voice.tonebar_phase_increment;
+        if voice.tonebar_phase >= 1.0 { voice.tonebar_phase -= 1.0; }
+        voice.hammer_phase += voice.hammer_phase_increment;
+        if voice.hammer_phase >= 1.0 { voice.hammer_phase -= 1.0; }
+        voice.tine_level *= if voice.gate { 0.9999995 } else { 0.99994 };
+        voice.tonebar_level *= if voice.gate { 0.999997 } else { 0.99995 };
+        voice.hammer_level *= 0.99935;
+        voice.level *= if voice.gate { 0.999995 } else { release_decay };
+        if voice.level < 0.00001 { voice.level = 0.0; voice.gate = false; }
+        contribution
+    }
+
     fn render(&mut self, start: u32, end: u32) {
         let release_decay = 0.99994 + (1.0 - self.damping) * 0.00004;
         for frame in start..end {
             let mut mix = 0.0;
             for voice in &mut self.voices {
-                if voice.active() {
-                    let phase = voice.phase;
-                    let fundamental = sine(phase);
-                    if voice.gate && voice.level < voice.target_level {
-                        voice.level = (voice.level + voice.attack_increment).min(voice.target_level);
-                    }
-                    let tonebar = sine(voice.tonebar_phase);
-                    let hammer = sine(voice.hammer_phase);
-                    voice.noise_state ^= voice.noise_state << 13;
-                    voice.noise_state ^= voice.noise_state >> 17;
-                    voice.noise_state ^= voice.noise_state << 5;
-                    let hammer_noise = (voice.noise_state as f32 / 2_147_483_648.0) - 1.0;
-                    mix += voice.level * (fundamental * voice.tine_level + tonebar * voice.tonebar_level)
-                        + (hammer + hammer_noise * 0.35) * voice.hammer_level;
-                    voice.phase += voice.phase_increment;
-                    if voice.phase >= 1.0 { voice.phase -= 1.0; }
-                    voice.tonebar_phase += voice.tonebar_phase_increment;
-                    if voice.tonebar_phase >= 1.0 { voice.tonebar_phase -= 1.0; }
-                    voice.hammer_phase += voice.hammer_phase_increment;
-                    if voice.hammer_phase >= 1.0 { voice.hammer_phase -= 1.0; }
-                    voice.tine_level *= if voice.gate { 0.9999995 } else { 0.99994 };
-                    voice.tonebar_level *= if voice.gate { 0.999997 } else { 0.99995 };
-                    voice.hammer_level *= 0.99935;
-                    voice.level *= if voice.gate { 0.999995 } else { release_decay };
-                    if voice.level < 0.00001 { voice.level = 0.0; voice.gate = false; }
-                }
+                mix += Self::process_voice(voice, release_decay);
+            }
+            for tail in &mut self.tails {
+                mix += Self::process_voice(tail, release_decay);
             }
             let tremolo = 1.0 - self.tremolo * 0.3 * (1.0 + sine(self.tremolo_phase));
             self.tremolo_phase += 5.2 / self.sample_rate;
