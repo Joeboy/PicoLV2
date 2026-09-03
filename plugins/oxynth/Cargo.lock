@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "oxynth-lv2"
+name = "oxynth"
 version = "0.1.0"

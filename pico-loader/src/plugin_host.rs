@@ -14,8 +14,8 @@ use crate::lv2::{
 };
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 
-static SYNTH_PLUGIN: &[u8] = include_bytes!("../../plugins/tine-piano-lv2/build/pico/plugin.so");
-static DELAY_PLUGIN: &[u8] = include_bytes!("../../plugins/delay-lv2/build/pico/plugin.so");
+static SYNTH_PLUGIN: &[u8] = include_bytes!("../../plugins/tine-piano/build/pico/plugin.so");
+static DELAY_PLUGIN: &[u8] = include_bytes!("../../plugins/delay/build/pico/plugin.so");
 
 const SYNTH_MIDI_INPUT_PORT: u32 = 0;
 const SYNTH_AUDIO_OUTPUT_PORT: u32 = 1;

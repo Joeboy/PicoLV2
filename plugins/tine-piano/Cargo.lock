@@ -3,5 +3,5 @@
 version = 4
 
 [[package]]
-name = "string-synth-lv2"
+name = "tine-piano"
 version = "0.1.0"

@@ -280,7 +280,7 @@ static const void *extension_data(const char *uri) {
 }
 
 static const LV2_Descriptor descriptor = {
-    "https://joebutton.co.uk/lv2/square-synth-poc",
+    "https://joebutton.co.uk/lv2/monosynth-poc",
     instantiate,
     connect_port,
     activate,

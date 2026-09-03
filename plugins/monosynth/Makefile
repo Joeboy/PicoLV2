@@ -36,13 +36,13 @@ BUILD_DIR := build/$(TARGET)
 SRC := src/plugin.c
 OUT := $(BUILD_DIR)/plugin.so
 
-# LV2 bundle directory: manifest.ttl + square-synth.ttl describe the plugin
+# LV2 bundle directory: manifest.ttl + monosynth.ttl describe the plugin
 # for real LV2 hosts (e.g. jalv, https://gitlab.com/drobilla/jalv); the
 # Linux binary is copied in alongside them since LV2 hosts expect a plugin's
 # binary to live in its own bundle directory. Point `LV2_PATH` at the parent
-# of this repo's monosynth-lv2 directory (or symlink the bundle into ~/.lv2/)
-# to make hosts like jalv find it: `jalv https://joebutton.co.uk/lv2/square-synth-poc`.
-BUNDLE_DIR := square-synth.lv2
+# of this repo's monosynth directory (or symlink the bundle into ~/.lv2/)
+# to make hosts like jalv find it: `jalv https://joebutton.co.uk/lv2/monosynth-poc`.
+BUNDLE_DIR := monosynth.lv2
 
 .PHONY: all pico linux bundle test clean info
 

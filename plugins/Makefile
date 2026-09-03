@@ -1,5 +1,5 @@
 STRIP ?= 1
-PLUGINS := amp-lv2 delay-lv2 monosynth-lv2 oxynth-lv2 string-synth-lv2 tine-piano-lv2
+PLUGINS := amp delay monosynth oxynth string-synth tine-piano
 
 .PHONY: all pico linux test clean
 
