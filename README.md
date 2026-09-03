@@ -13,11 +13,7 @@ options.
 ## LV2
 
 I can't claim to be an expert on plugin formats, but LV2 seems very open and
-extensible, and I kind of know it already. For now I'm focusing on being able to
-compile and run the binary part on the Pico 2. At some point I'll have to figure
-out what to do with the metadata (.ttl) files, particularly wrt ports and
-connections. For now I'm just assuming Port 0 is a USB input and Port 1 is a
-mono audio output.
+extensible, and I kind of know it already.
 
 There are lots of LV2 plugins out there. I'm hoping that at least some of the
 simpler effects plugins might just work with minimal changes. I haven't tried
