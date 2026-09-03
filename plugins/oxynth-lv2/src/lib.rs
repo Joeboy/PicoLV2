@@ -1,8 +1,12 @@
 #![no_std]
 
+extern crate alloc;
+
 mod abi;
 mod synth;
 
+use alloc::boxed::Box;
+use core::alloc::{GlobalAlloc, Layout};
 use core::ffi::{CStr, c_char, c_void};
 
 use abi::{
@@ -11,7 +15,25 @@ use abi::{
 };
 use synth::Synth;
 
-static mut SYNTH: Synth = Synth::new();
+struct CAllocator;
+
+unsafe impl GlobalAlloc for CAllocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        unsafe { malloc(layout.size()).cast() }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {
+        unsafe { free(ptr.cast()) }
+    }
+}
+
+unsafe extern "C" {
+    fn malloc(size: usize) -> *mut c_void;
+    fn free(ptr: *mut c_void);
+}
+
+#[global_allocator]
+static ALLOCATOR: CAllocator = CAllocator;
 
 extern "C" fn instantiate(
     _descriptor: *const Lv2Descriptor,
@@ -46,9 +68,9 @@ extern "C" fn instantiate(
         return core::ptr::null_mut();
     }
 
-    let synth = unsafe { &mut *(&raw mut SYNTH) };
+    let mut synth = Box::new(Synth::new());
     synth.initialise(sample_rate as f32, sequence_urid, midi_urid);
-    synth as *mut Synth as Lv2Handle
+    Box::into_raw(synth) as Lv2Handle
 }
 
 extern "C" fn connect_port(handle: Lv2Handle, port: u32, data: *mut c_void) {
@@ -70,7 +92,13 @@ extern "C" fn run(handle: Lv2Handle, sample_count: u32) {
 }
 
 extern "C" fn deactivate(_handle: Lv2Handle) {}
-extern "C" fn cleanup(_handle: Lv2Handle) {}
+extern "C" fn cleanup(handle: Lv2Handle) {
+    if !handle.is_null() {
+        unsafe {
+            drop(Box::from_raw(handle.cast::<Synth>()));
+        }
+    }
+}
 extern "C" fn extension_data(_uri: *const c_char) -> *const c_void {
     core::ptr::null()
 }

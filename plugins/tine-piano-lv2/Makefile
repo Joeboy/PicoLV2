@@ -1,4 +1,5 @@
 TARGET ?= pico
+STRIP ?= 1
 
 ifeq ($(TARGET),pico)
 CARGO_TARGET := thumbv8m.main-none-eabihf
@@ -6,8 +7,8 @@ RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libtine_piano_lv2.a
 LINKER := arm-none-eabi-gcc
 READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
-LDFLAGS := $(MCPU) -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack
-LDLIBS := -lgcc
+LDFLAGS := $(MCPU) -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack -Wl,--no-warnings
+LDLIBS := -lgcc -lc -lnosys
 else ifeq ($(TARGET),linux)
 CARGO_TARGET := x86_64-unknown-linux-gnu
 RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libtine_piano_lv2.a
@@ -19,6 +20,10 @@ else
 $(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
 endif
 
+ifneq ($(STRIP),0)
+LDFLAGS += -Wl,--strip-debug
+endif
+
 BUILD_DIR := build/$(TARGET)
 OUT := $(BUILD_DIR)/plugin.so
 BUNDLE_DIR := tine-piano.lv2
@@ -28,13 +33,13 @@ BUNDLE_DIR := tine-piano.lv2
 all: $(OUT)
 
 pico:
-	$(MAKE) TARGET=pico
+	$(MAKE) TARGET=pico STRIP=$(STRIP)
 
 linux:
-	$(MAKE) TARGET=linux
+	$(MAKE) TARGET=linux STRIP=$(STRIP)
 
 bundle:
-	$(MAKE) TARGET=linux
+	$(MAKE) TARGET=linux STRIP=$(STRIP)
 	cp build/linux/plugin.so $(BUNDLE_DIR)/plugin.so
 
 SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c

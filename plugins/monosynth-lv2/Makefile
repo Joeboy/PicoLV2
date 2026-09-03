@@ -2,6 +2,7 @@
 # with `make TARGET=linux` - useful for fast host-side testing of the plugin
 # logic without needing hardware.
 TARGET ?= pico
+STRIP ?= 1
 
 ifeq ($(TARGET),pico)
 CC := arm-none-eabi-gcc
@@ -9,14 +10,14 @@ READELF := arm-none-eabi-readelf
 # Matches the Pico 2 (RP2350), Cortex-M33 with hardware FP, thumbv8m.main.
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
-LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined
+LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--no-warnings
 # -lgcc: the plugin does double-precision math (the LV2 `instantiate` ABI
 # passes `sample_rate` as a double), but this FPU is single-precision only
 # (fpv5-sp-d16), so double ops need libgcc's soft-float routines. Verified
 # these link in as position-independent, relocation-free code. Must come
 # after the object file on the link line so `ld` sees the undefined symbols
 # it needs to satisfy before searching the archive.
-LDLIBS := -lgcc
+LDLIBS := -lgcc -lc -lnosys
 else ifeq ($(TARGET),linux)
 CC := gcc
 READELF := readelf
@@ -25,6 +26,10 @@ LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined
 LDLIBS :=
 else
 $(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
+endif
+
+ifneq ($(STRIP),0)
+LDFLAGS += -Wl,--strip-debug
 endif
 
 BUILD_DIR := build/$(TARGET)
@@ -44,13 +49,13 @@ BUNDLE_DIR := square-synth.lv2
 all: $(OUT)
 
 pico:
-	$(MAKE) TARGET=pico
+	$(MAKE) TARGET=pico STRIP=$(STRIP)
 
 linux:
-	$(MAKE) TARGET=linux
+	$(MAKE) TARGET=linux STRIP=$(STRIP)
 
 bundle:
-	$(MAKE) TARGET=linux
+	$(MAKE) TARGET=linux STRIP=$(STRIP)
 	cp build/linux/plugin.so $(BUNDLE_DIR)/plugin.so
 
 SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c

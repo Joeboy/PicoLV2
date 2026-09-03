@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef void *LV2_Handle;
 
@@ -82,7 +83,11 @@ static void connect_port(LV2_Handle instance, uint32_t port, void *data_location
 }
 
 static void activate(LV2_Handle instance) {
-    (void)instance;
+    DelayInstance *delay = (DelayInstance *)instance;
+    if (delay) {
+        memset(delay->ring_buffer, 0, sizeof(delay->ring_buffer));
+        delay->write_pos = 0;
+    }
 }
 
 static void run(LV2_Handle instance, uint32_t sample_count) {
@@ -90,8 +95,13 @@ static void run(LV2_Handle instance, uint32_t sample_count) {
     if (!delay || !delay->input || !delay->output) return;
 
     float delay_sec = delay->delay_time ? *delay->delay_time : 0.100f; // 100ms default
+    if (delay_sec < 0.001f) delay_sec = 0.001f;
     float feedback = delay->feedback ? *delay->feedback : 0.75f; // high feedback for testing
+    if (feedback < 0.0f) feedback = 0.0f;
+    if (feedback > 0.99f) feedback = 0.99f;
     float mix = delay->dry_wet ? *delay->dry_wet : 0.5f;
+    if (mix < 0.0f) mix = 0.0f;
+    if (mix > 1.0f) mix = 1.0f;
 
     uint32_t delay_samples = (uint32_t)(delay_sec * delay->sample_rate);
     if (delay_samples < 1) delay_samples = 1;

@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <stdlib.h>
 
 // A minimal, self-contained subset of the real LV2 plugin ABI
 // (https://lv2plug.in/ns/lv2core), reimplemented here rather than pulling in
@@ -99,8 +100,6 @@ typedef struct {
     uint32_t phase;
 } SynthState;
 
-static SynthState g_state;
-
 static int strings_equal(const char *a, const char *b) {
     while (*a && *a == *b) {
         a++;
@@ -135,17 +134,22 @@ static LV2_Handle instantiate(const LV2_Descriptor *descriptor,
         return 0;
     }
 
-    g_state.sample_rate = (float)sample_rate;
-    g_state.output = 0;
-    g_state.midi_in = 0;
-    g_state.note_frequency = 440.0f;
-    g_state.velocity_gain = 0.0f;
-    g_state.active_note = 0;
-    g_state.note_on = 0;
-    g_state.atom_sequence_urid = atom_sequence_urid;
-    g_state.midi_event_urid = midi_event_urid;
-    g_state.phase = 0;
-    return &g_state;
+    SynthState *synth = (SynthState *)calloc(1, sizeof(SynthState));
+    if (!synth) {
+        return 0;
+    }
+
+    synth->sample_rate = (float)sample_rate;
+    synth->output = 0;
+    synth->midi_in = 0;
+    synth->note_frequency = 440.0f;
+    synth->velocity_gain = 0.0f;
+    synth->active_note = 0;
+    synth->note_on = 0;
+    synth->atom_sequence_urid = atom_sequence_urid;
+    synth->midi_event_urid = midi_event_urid;
+    synth->phase = 0;
+    return (LV2_Handle)synth;
 }
 
 static void connect_port(LV2_Handle instance, uint32_t port, void *data_location) {
@@ -267,7 +271,7 @@ static void deactivate(LV2_Handle instance) {
 }
 
 static void cleanup(LV2_Handle instance) {
-    (void)instance;
+    free(instance);
 }
 
 static const void *extension_data(const char *uri) {
