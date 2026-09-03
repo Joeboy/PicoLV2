@@ -13,18 +13,12 @@ use crate::lv2::{
     MIDI_EVENT_URID, URID_MAP_URI,
 };
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
+use crate::plugin_metadata::{PluginMetadata, PortKind};
 
 static SYNTH_PLUGIN: &[u8] = include_bytes!("../../plugins/tine-piano/build/pico/plugin.so");
 static DELAY_PLUGIN: &[u8] = include_bytes!("../../plugins/delay/build/pico/plugin.so");
-
-const SYNTH_MIDI_INPUT_PORT: u32 = 0;
-const SYNTH_AUDIO_OUTPUT_PORT: u32 = 1;
-
-const DELAY_AUDIO_INPUT_PORT: u32 = 0;
-const DELAY_AUDIO_OUTPUT_PORT: u32 = 1;
-const DELAY_TIME_PORT: u32 = 2;
-const DELAY_FEEDBACK_PORT: u32 = 3;
-const DELAY_DRY_WET_PORT: u32 = 4;
+static SYNTH_METADATA: &[u8] = include_bytes!("../../plugins/tine-piano/tine-piano.lv2/tine-piano.ttl");
+static DELAY_METADATA: &[u8] = include_bytes!("../../plugins/delay/delay.lv2/delay.ttl");
 
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
 static mut SYNTH_AUDIO_BUFFER: [f32; BLOCK_SIZE] = [0.0; BLOCK_SIZE];
@@ -132,6 +126,7 @@ impl PluginInstance {
 pub struct PluginHost {
     synth: PluginInstance,
     delay: PluginInstance,
+    delay_output_port: u32,
     midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
     pending_midi: Option<MidiEvent>,
     timeline_origin_micros: u64,
@@ -142,6 +137,8 @@ impl PluginHost {
     pub fn load(midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>) -> Self {
         let synth_binary = PluginBinary::load("synth-plugin.so", SYNTH_PLUGIN);
         let delay_binary = PluginBinary::load("delay-plugin.so", DELAY_PLUGIN);
+        let synth_metadata = PluginMetadata::parse(SYNTH_METADATA).expect("invalid synth metadata");
+        let delay_metadata = PluginMetadata::parse(DELAY_METADATA).expect("invalid delay metadata");
 
         let features_ptr = core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature;
 
@@ -149,29 +146,40 @@ impl PluginHost {
         let mut delay = delay_binary.instantiate(SAMPLE_RATE as f64, features_ptr);
 
         synth.connect_port(
-            SYNTH_MIDI_INPUT_PORT,
+            synth_metadata.port(PortKind::AtomInput, 0).expect("synth MIDI port missing").index,
             core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
         );
         synth.connect_port(
-            SYNTH_AUDIO_OUTPUT_PORT,
+            synth_metadata.port(PortKind::AudioOutput, 0).expect("synth output port missing").index,
             core::ptr::addr_of_mut!(SYNTH_AUDIO_BUFFER) as *mut c_void,
         );
         synth.activate();
 
         delay.connect_port(
-            DELAY_AUDIO_INPUT_PORT,
+            delay_metadata.port(PortKind::AudioInput, 0).expect("delay input port missing").index,
             core::ptr::addr_of_mut!(SYNTH_AUDIO_BUFFER) as *mut c_void,
         );
+        let delay_output = delay_metadata.port(PortKind::AudioOutput, 0).expect("delay output port missing");
+        let delay_controls = [
+            delay_metadata.port(PortKind::ControlInput, 0).expect("delay control port missing"),
+            delay_metadata.port(PortKind::ControlInput, 1).expect("delay control port missing"),
+            delay_metadata.port(PortKind::ControlInput, 2).expect("delay control port missing"),
+        ];
+        unsafe {
+            DELAY_TIME = delay_controls[0].default.expect("delay time default missing");
+            DELAY_FEEDBACK = delay_controls[1].default.expect("delay feedback default missing");
+            DELAY_DRY_WET = delay_controls[2].default.expect("delay dry/wet default missing");
+        }
         delay.connect_port(
-            DELAY_TIME_PORT,
+            delay_controls[0].index,
             core::ptr::addr_of_mut!(DELAY_TIME) as *mut c_void,
         );
         delay.connect_port(
-            DELAY_FEEDBACK_PORT,
+            delay_controls[1].index,
             core::ptr::addr_of_mut!(DELAY_FEEDBACK) as *mut c_void,
         );
         delay.connect_port(
-            DELAY_DRY_WET_PORT,
+            delay_controls[2].index,
             core::ptr::addr_of_mut!(DELAY_DRY_WET) as *mut c_void,
         );
         delay.activate();
@@ -179,6 +187,7 @@ impl PluginHost {
         Self {
             synth,
             delay,
+            delay_output_port: delay_output.index,
             midi_consumer,
             pending_midi: None,
             timeline_origin_micros: embassy_time::Instant::now().as_micros(),
@@ -223,7 +232,7 @@ impl PluginHost {
         self.synth.run(BLOCK_SIZE as u32);
 
         // 2. Connect delay plugin output to the target audio buffer
-        self.delay.connect_port(DELAY_AUDIO_OUTPUT_PORT, output as *mut c_void);
+        self.delay.connect_port(self.delay_output_port, output as *mut c_void);
 
         // 3. Run delay plugin instance to render into final output buffer
         self.delay.run(BLOCK_SIZE as u32);
