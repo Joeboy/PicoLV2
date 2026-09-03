@@ -9,6 +9,7 @@ use crate::audio_buffer::{
     AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
     block_mut_ptr,
 };
+use crate::log_heap;
 use crate::lv2::{
     ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap, MIDI_EVENT_URI,
     MIDI_EVENT_URID, URID_MAP_URI,
@@ -57,14 +58,18 @@ pub struct PluginBinary {
 
 impl PluginBinary {
     pub fn load(name: &str, elf_bytes: &[u8]) -> Self {
+        info!("plugin load begin name={} elf_bytes={}", name, elf_bytes.len());
+        log_heap("before elf load");
         let raw = Loader::new()
             .run()
             .load_dylib(ElfBinary::new(name, elf_bytes))
             .expect("failed to load lv2 plugin binary");
+        log_heap("after elf load");
         let lib = Relocator::new()
             .run(raw)
             .relocate()
             .expect("failed to relocate lv2 plugin binary");
+        log_heap("after relocation");
 
         let lv2_descriptor = unsafe {
             lib.get::<extern "C" fn(u32) -> *const Lv2Descriptor>("lv2_descriptor")
@@ -151,9 +156,17 @@ impl PluginHost {
         for node_index in 0..graph.node_count {
             let node_uri = graph.node(node_index).expect("invalid graph node").uri;
             let entry = bundle.find(node_uri).expect("graph plugin missing from bundle");
+            info!(
+                "graph node {} uri={} binary_bytes={} metadata_bytes={}",
+                node_index,
+                node_uri,
+                entry.binary.len(),
+                entry.metadata.len()
+            );
             let binary = PluginBinary::load("graph-plugin.so", entry.binary);
             let metadata = PluginMetadata::parse(entry.metadata).expect("invalid graph metadata");
             let mut instance = binary.instantiate(SAMPLE_RATE as f64, features_ptr);
+            log_heap("after instantiate");
             let input = metadata.port(PortKind::AudioInput, 0).map(|port| port.index);
             let output = metadata.port(PortKind::AudioOutput, 0).map(|port| port.index);
             if let Some(port) = metadata.port(PortKind::AtomInput, 0) {
