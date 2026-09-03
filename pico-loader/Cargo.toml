@@ -29,6 +29,7 @@ elf_loader = { version = "0.17.0", default-features = false }
 embedded-alloc = "0.6.0"
 heapless = "0.8"
 static_cell = "2.1"
+lv2-bundle-format = { path = "../tools/lv2-bundle-format" }
 
 [profile.release]
 # Enable generation of debug symbols even on release builds

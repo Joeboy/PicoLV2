@@ -3,6 +3,7 @@ use core::ffi::{CStr, c_char, c_void};
 use defmt::info;
 use elf_loader::{Loader, Relocator, input::ElfBinary};
 use heapless::spsc::{Consumer, Producer};
+use lv2_bundle_format::{Bundle, FLASH_ADDRESS, MAX_SIZE};
 
 use crate::audio_buffer::{
     AUDIO_QUEUE_SIZE, AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
@@ -15,10 +16,9 @@ use crate::lv2::{
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 use crate::plugin_metadata::{PluginMetadata, PortKind};
 
-static SYNTH_PLUGIN: &[u8] = include_bytes!("../../plugins/tine-piano/build/pico/plugin.so");
-static DELAY_PLUGIN: &[u8] = include_bytes!("../../plugins/delay/build/pico/plugin.so");
-static SYNTH_METADATA: &[u8] = include_bytes!("../../plugins/tine-piano/tine-piano.lv2/tine-piano.ttl");
-static DELAY_METADATA: &[u8] = include_bytes!("../../plugins/delay/delay.lv2/delay.ttl");
+// const SYNTH_URI: &[u8] = b"https://joebutton.co.uk/lv2/tine-piano";
+const SYNTH_URI: &[u8] = b"https://joebutton.co.uk/lv2/string-synth";
+const DELAY_URI: &[u8] = b"https://joebutton.co.uk/lv2/delay-poc";
 
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
 static mut SYNTH_AUDIO_BUFFER: [f32; BLOCK_SIZE] = [0.0; BLOCK_SIZE];
@@ -135,10 +135,16 @@ pub struct PluginHost {
 
 impl PluginHost {
     pub fn load(midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>) -> Self {
-        let synth_binary = PluginBinary::load("synth-plugin.so", SYNTH_PLUGIN);
-        let delay_binary = PluginBinary::load("delay-plugin.so", DELAY_PLUGIN);
-        let synth_metadata = PluginMetadata::parse(SYNTH_METADATA).expect("invalid synth metadata");
-        let delay_metadata = PluginMetadata::parse(DELAY_METADATA).expect("invalid delay metadata");
+        let bundle_bytes = unsafe {
+            core::slice::from_raw_parts(FLASH_ADDRESS as *const u8, MAX_SIZE)
+        };
+        let bundle = Bundle::parse(bundle_bytes).expect("invalid plugin bundle");
+        let synth_entry = bundle.find(SYNTH_URI).expect("synth plugin missing from bundle");
+        let delay_entry = bundle.find(DELAY_URI).expect("delay plugin missing from bundle");
+        let synth_binary = PluginBinary::load("synth-plugin.so", synth_entry.binary);
+        let delay_binary = PluginBinary::load("delay-plugin.so", delay_entry.binary);
+        let synth_metadata = PluginMetadata::parse(synth_entry.metadata).expect("invalid synth metadata");
+        let delay_metadata = PluginMetadata::parse(delay_entry.metadata).expect("invalid delay metadata");
 
         let features_ptr = core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature;
 

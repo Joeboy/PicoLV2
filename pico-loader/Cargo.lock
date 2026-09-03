@@ -944,6 +944,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lv2-bundle-format"
+version = "0.1.0"
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1107,6 +1111,7 @@ dependencies = [
  "embedded-alloc",
  "fixed",
  "heapless 0.8.0",
+ "lv2-bundle-format",
  "panic-probe",
  "pio",
  "portable-atomic",
