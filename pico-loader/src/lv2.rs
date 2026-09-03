@@ -19,20 +19,19 @@ pub struct Lv2UridMap {
     pub map: extern "C" fn(*mut c_void, *const c_char) -> u32,
 }
 
-// Mirrors the C `LV2_Descriptor` in monosynth-lv2/src/plugin.c field-for-field.
 #[repr(C)]
 pub struct Lv2Descriptor {
     pub uri: *const c_char,
     pub instantiate: extern "C" fn(
-        *const Lv2Descriptor,
-        f64,
-        *const c_char,
-        *const *const Lv2Feature,
+        descriptor: *const Lv2Descriptor,
+        rate: f64,
+        bundle_path: *const c_char,
+        features: *const *const Lv2Feature,
     ) -> *mut c_void,
-    pub connect_port: extern "C" fn(*mut c_void, u32, *mut c_void),
-    pub activate: extern "C" fn(*mut c_void),
-    pub run: extern "C" fn(*mut c_void, u32),
-    pub deactivate: extern "C" fn(*mut c_void),
-    pub cleanup: extern "C" fn(*mut c_void),
-    pub extension_data: extern "C" fn(*const c_char) -> *const c_void,
+    pub connect_port: extern "C" fn(instance: *mut c_void, port: u32, data: *mut c_void),
+    pub activate: extern "C" fn(instance: *mut c_void),
+    pub run: extern "C" fn(instance: *mut c_void, n_samples: u32),
+    pub deactivate: extern "C" fn(instance: *mut c_void),
+    pub cleanup: extern "C" fn(instance: *mut c_void),
+    pub extension_data: extern "C" fn(extension_data:*const c_char) -> *const c_void,
 }
