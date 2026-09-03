@@ -14,13 +14,23 @@ use crate::lv2::{
 };
 use crate::midi::{Lv2MidiSequence, MIDI_QUEUE_SIZE, MidiEvent};
 
-static LV2_PLUGIN: &[u8] = include_bytes!("../../plugins/string-synth-lv2/build/pico/plugin.so");
-//static LV2_PLUGIN: &[u8] = include_bytes!("../../plugins/oxynth-lv2/build/pico/plugin.so");
+static SYNTH_PLUGIN: &[u8] = include_bytes!("../../plugins/tine-piano-lv2/build/pico/plugin.so");
+static DELAY_PLUGIN: &[u8] = include_bytes!("../../plugins/delay-lv2/build/pico/plugin.so");
 
-const MIDI_INPUT_PORT: u32 = 0;
-const AUDIO_OUTPUT_PORT: u32 = 1;
+const SYNTH_MIDI_INPUT_PORT: u32 = 0;
+const SYNTH_AUDIO_OUTPUT_PORT: u32 = 1;
+
+const DELAY_AUDIO_INPUT_PORT: u32 = 0;
+const DELAY_AUDIO_OUTPUT_PORT: u32 = 1;
+const DELAY_TIME_PORT: u32 = 2;
+const DELAY_FEEDBACK_PORT: u32 = 3;
+const DELAY_DRY_WET_PORT: u32 = 4;
 
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
+static mut SYNTH_AUDIO_BUFFER: [f32; BLOCK_SIZE] = [0.0; BLOCK_SIZE];
+static mut DELAY_TIME: f32 = 0.100; // 100ms
+static mut DELAY_FEEDBACK: f32 = 0.75; // high feedback for testing
+static mut DELAY_DRY_WET: f32 = 0.5;
 
 extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
     if uri.is_null() {
@@ -48,11 +58,80 @@ static mut URID_MAP_FEATURE: Lv2Feature = Lv2Feature {
 static mut FEATURES: [*const Lv2Feature; 2] =
     [core::ptr::addr_of!(URID_MAP_FEATURE), core::ptr::null()];
 
-/// Owns a loaded LV2 plugin instance and bridges queued MIDI events to its
-/// Atom Sequence input port.
-pub struct PluginHost {
+/// Represents a loaded, relocated LV2 plugin library binary.
+pub struct PluginBinary {
+    descriptor: &'static Lv2Descriptor,
+}
+
+impl PluginBinary {
+    pub fn load(name: &str, elf_bytes: &[u8]) -> Self {
+        let raw = Loader::new()
+            .run()
+            .load_dylib(ElfBinary::new(name, elf_bytes))
+            .expect("failed to load lv2 plugin binary");
+        let lib = Relocator::new()
+            .run(raw)
+            .relocate()
+            .expect("failed to relocate lv2 plugin binary");
+
+        let lv2_descriptor = unsafe {
+            lib.get::<extern "C" fn(u32) -> *const Lv2Descriptor>("lv2_descriptor")
+                .expect("symbol `lv2_descriptor` not found")
+        };
+        let descriptor: &'static Lv2Descriptor = unsafe { &*lv2_descriptor(0) };
+
+        // Keep the relocated ELF resident in memory for the lifetime of the firmware
+        core::mem::forget(lib);
+
+        Self { descriptor }
+    }
+
+    pub fn instantiate(&self, sample_rate: f64, features: *const *const Lv2Feature) -> PluginInstance {
+        let handle = (self.descriptor.instantiate)(
+            self.descriptor,
+            sample_rate,
+            core::ptr::null(),
+            features,
+        );
+        assert!(!handle.is_null(), "failed to instantiate lv2 plugin");
+
+        PluginInstance {
+            descriptor: self.descriptor,
+            handle,
+        }
+    }
+}
+
+/// An active instance of a loaded LV2 plugin.
+pub struct PluginInstance {
     descriptor: &'static Lv2Descriptor,
     handle: *mut c_void,
+}
+
+impl PluginInstance {
+    pub fn connect_port(&mut self, port: u32, data_location: *mut c_void) {
+        (self.descriptor.connect_port)(self.handle, port, data_location);
+    }
+
+    pub fn activate(&mut self) {
+        (self.descriptor.activate)(self.handle);
+    }
+
+    pub fn run(&mut self, sample_count: u32) {
+        (self.descriptor.run)(self.handle, sample_count);
+    }
+
+    #[allow(dead_code)]
+    pub fn deactivate(&mut self) {
+        (self.descriptor.deactivate)(self.handle);
+    }
+}
+
+/// Manages loaded LV2 plugin instances and bridges queued MIDI events
+/// through the audio processing pipeline.
+pub struct PluginHost {
+    synth: PluginInstance,
+    delay: PluginInstance,
     midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>,
     pending_midi: Option<MidiEvent>,
     timeline_origin_micros: u64,
@@ -61,43 +140,45 @@ pub struct PluginHost {
 
 impl PluginHost {
     pub fn load(midi_consumer: Consumer<'static, MidiEvent, MIDI_QUEUE_SIZE>) -> Self {
-        let raw = Loader::new()
-            .run()
-            .load_dylib(ElfBinary::new("lv2-plugin.so", LV2_PLUGIN))
-            .expect("failed to load lv2 plugin");
-        let lib = Relocator::new()
-            .run(raw)
-            .relocate()
-            .expect("failed to relocate lv2 plugin");
+        let synth_binary = PluginBinary::load("synth-plugin.so", SYNTH_PLUGIN);
+        let delay_binary = PluginBinary::load("delay-plugin.so", DELAY_PLUGIN);
 
-        let lv2_descriptor = unsafe {
-            lib.get::<extern "C" fn(u32) -> *const Lv2Descriptor>("lv2_descriptor")
-                .expect("symbol `lv2_descriptor` not found")
-        };
-        let descriptor: &'static Lv2Descriptor = unsafe { &*lv2_descriptor(0) };
+        let features_ptr = core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature;
 
-        // The mapped image must remain resident while its descriptor and code
-        // are used. This host keeps the plugin alive for the firmware lifetime.
-        core::mem::forget(lib);
+        let mut synth = synth_binary.instantiate(SAMPLE_RATE as f64, features_ptr);
+        let mut delay = delay_binary.instantiate(SAMPLE_RATE as f64, features_ptr);
 
-        let handle = (descriptor.instantiate)(
-            descriptor,
-            SAMPLE_RATE as f64,
-            core::ptr::null(),
-            core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature,
-        );
-        assert!(!handle.is_null(), "failed to instantiate lv2 plugin");
-
-        (descriptor.connect_port)(
-            handle,
-            MIDI_INPUT_PORT,
+        synth.connect_port(
+            SYNTH_MIDI_INPUT_PORT,
             core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
         );
-        (descriptor.activate)(handle);
+        synth.connect_port(
+            SYNTH_AUDIO_OUTPUT_PORT,
+            core::ptr::addr_of_mut!(SYNTH_AUDIO_BUFFER) as *mut c_void,
+        );
+        synth.activate();
+
+        delay.connect_port(
+            DELAY_AUDIO_INPUT_PORT,
+            core::ptr::addr_of_mut!(SYNTH_AUDIO_BUFFER) as *mut c_void,
+        );
+        delay.connect_port(
+            DELAY_TIME_PORT,
+            core::ptr::addr_of_mut!(DELAY_TIME) as *mut c_void,
+        );
+        delay.connect_port(
+            DELAY_FEEDBACK_PORT,
+            core::ptr::addr_of_mut!(DELAY_FEEDBACK) as *mut c_void,
+        );
+        delay.connect_port(
+            DELAY_DRY_WET_PORT,
+            core::ptr::addr_of_mut!(DELAY_DRY_WET) as *mut c_void,
+        );
+        delay.activate();
 
         Self {
-            descriptor,
-            handle,
+            synth,
+            delay,
             midi_consumer,
             pending_midi: None,
             timeline_origin_micros: embassy_time::Instant::now().as_micros(),
@@ -138,8 +219,15 @@ impl PluginHost {
         }
         midi_sequence.set_event_count(event_count);
 
-        (self.descriptor.connect_port)(self.handle, AUDIO_OUTPUT_PORT, output as *mut c_void);
-        (self.descriptor.run)(self.handle, BLOCK_SIZE as u32);
+        // 1. Run synth plugin instance to render into synth intermediate buffer
+        self.synth.run(BLOCK_SIZE as u32);
+
+        // 2. Connect delay plugin output to the target audio buffer
+        self.delay.connect_port(DELAY_AUDIO_OUTPUT_PORT, output as *mut c_void);
+
+        // 3. Run delay plugin instance to render into final output buffer
+        self.delay.run(BLOCK_SIZE as u32);
+
         self.block_start_frame += BLOCK_SIZE as u64;
     }
 }
