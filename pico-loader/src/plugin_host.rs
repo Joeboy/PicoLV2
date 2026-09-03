@@ -152,18 +152,31 @@ impl PluginHost {
 
         let features_ptr = core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature;
 
+        // Relocated binaries are shared across graph nodes that reference the
+        // same plugin URI, so repeated nodes only cost another instance, not
+        // another ELF load/relocation and RAM mapping.
+        let mut binaries: Vec<(&[u8], PluginBinary), MAX_NODES> = Vec::new();
         let mut nodes = Vec::new();
         for node_index in 0..graph.node_count {
             let node_uri = graph.node(node_index).expect("invalid graph node").uri;
             let entry = bundle.find(node_uri).expect("graph plugin missing from bundle");
-            info!(
-                "graph node {} uri={} binary_bytes={} metadata_bytes={}",
-                node_index,
-                node_uri,
-                entry.binary.len(),
-                entry.metadata.len()
-            );
-            let binary = PluginBinary::load("graph-plugin.so", entry.binary);
+            let binary = if let Some(pos) = binaries.iter().position(|(uri, _)| *uri == node_uri) {
+                info!("graph node {} uri={} reusing loaded binary", node_index, node_uri);
+                &binaries[pos].1
+            } else {
+                info!(
+                    "graph node {} uri={} binary_bytes={} metadata_bytes={}",
+                    node_index,
+                    node_uri,
+                    entry.binary.len(),
+                    entry.metadata.len()
+                );
+                let binary = PluginBinary::load("graph-plugin.so", entry.binary);
+                binaries
+                    .push((node_uri, binary))
+                    .unwrap_or_else(|_| panic!("too many distinct graph plugin binaries"));
+                &binaries.last().expect("just pushed").1
+            };
             let metadata = PluginMetadata::parse(entry.metadata).expect("invalid graph metadata");
             let mut instance = binary.instantiate(SAMPLE_RATE as f64, features_ptr);
             log_heap("after instantiate");
