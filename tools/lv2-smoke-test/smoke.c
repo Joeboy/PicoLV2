@@ -15,7 +15,18 @@ typedef void *(*Instantiate)(const void *, double, const char *, const Feature *
 typedef void (*ConnectPort)(void *, uint32_t, void *);
 typedef void (*Activate)(void *);
 typedef void (*Run)(void *, uint32_t);
-typedef struct Descriptor { const char *uri; Instantiate instantiate; ConnectPort connect; Activate activate; Run run; } Descriptor;
+typedef void (*Deactivate)(void *);
+typedef void (*Cleanup)(void *);
+typedef struct Descriptor {
+    const char *uri;
+    Instantiate instantiate;
+    ConnectPort connect;
+    Activate activate;
+    Run run;
+    Deactivate deactivate;
+    Cleanup cleanup;
+    const void *(*extension_data)(const char *);
+} Descriptor;
 
 static uint32_t map_uri(void *handle, const char *uri) {
     (void)handle;
@@ -104,6 +115,37 @@ int main(int argc, char **argv) {
         fprintf(stderr, "unexpected output: rms=%f first_half_rms=%f second_half_rms=%f frequency=%f\n", rms, first_half_rms, second_half_rms, frequency);
         return 1;
     }
+
+    /* Multi-instance test: verify distinct handles and independent operation. */
+    void *instance2 = descriptor->instantiate(descriptor, 48000.0, NULL, features);
+    if (!instance2 || instance2 == instance) {
+        fprintf(stderr, "multi-instance creation failed: instance=%p instance2=%p\n", instance, instance2);
+        return 1;
+    }
+    Sequence sequence2 = { 0 };
+    float output2[4800] = { 0 };
+    set_note(&sequence2, 2);
+    descriptor->connect(instance2, 0, &sequence2);
+    descriptor->connect(instance2, 1, output2);
+    descriptor->activate(instance2);
+    descriptor->run(instance2, 4800);
+    double energy2 = 0.0;
+    for (size_t index = 0; index < 4800; ++index) energy2 += output2[index] * output2[index];
+    if (sqrt(energy2 / 4800.0) < 0.001) {
+        fprintf(stderr, "multi-instance 2 failed to produce audio\n");
+        return 1;
+    }
+
+    /* Cleanup test: verify instance slots are recycled. */
+    descriptor->cleanup(instance);
+    descriptor->cleanup(instance2);
+    void *instance3 = descriptor->instantiate(descriptor, 48000.0, NULL, features);
+    if (!instance3) {
+        fprintf(stderr, "instance recycling after cleanup failed\n");
+        return 1;
+    }
+    descriptor->cleanup(instance3);
+
     printf("LV2 smoke test: %s, rms=%f", descriptor->uri, rms);
     if (check_pitch) printf(" frequency=%f Hz", frequency);
     putchar('\n');
