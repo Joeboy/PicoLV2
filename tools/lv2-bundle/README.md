@@ -10,21 +10,52 @@ The complete process is:
 1. Acquire or build copies of the Pico firmware (`pico-loader`), your desired
    plugins and the `lv2-bundle` utility. For the latter just do
    `cargo build --release` in the `lv2-bundle` folder.
-2. Pack plugins into a bundle.
-3. Build the Pico firmware ELF and convert to a raw binary.
-4. Combine the firmware and bundle.
-5. Flash the combined image using either the USB bootloader or a debug probe.
+2. Convert the Pico firmware ELF to a raw binary.
+3. Pack the plugins and combine them with the firmware into a flash image.
+4. Flash the image using either the USB bootloader or a debug probe.
 
 ## 1. Acquire or build required bits
 
-## 2. Pack the plugins
+### Building from the repo
+
+```sh
+cd plugins
+make
+cd ..
+
+cd tools/lv2-bundle
+cargo build --release
+cd ../..
+# (the rest of this README assumes lv2-bundle is on your PATH)
+
+cd pico-loader
+cargo build --release
+cd ..
+```
+
+## 2. Convert the Pico firmware ELF to a raw binary
+
+The idea is that eventually I'll just ship the binary, but documenting this here
+anyway.
+
+To convert the built pico-loader ELF to a raw binary that can be flashed onto
+the Pico:
+
+```sh
+rust-objcopy -O binary \
+  pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader \
+  pico-loader.bin
+```
+
+## 3. Pack the plugins and combine with the firmware
 
 Pass one `--plugin` option for each plugin. Each option contains the plugin's
 LV2 URI, Pico binary, and TTL metadata file:
 
 ```sh
 lv2-bundle pack \
-  --output plugins.bundle \
+  --output pico-image.bin \
+  --firmware pico-loader.bin \
   --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
     plugins/tine-piano/build/pico/plugin.so \
@@ -45,34 +76,6 @@ the compact `PICO GRP` payload used on the Pico. Blocks are emitted in the
 Turtle order and must already be topologically ordered. The current host uses
 the first audio input/output on each block and renders the highest-index sink;
 control-port arcs and multi-port routing are not yet supported.
-
-## 3. Build the Pico firmware ELF and convert to a raw binary
-
-The idea is that eventually I'll just ship the binary, but documenting this here
-anyway.
-
-Create the pico-loader ELF file by running this From the `pico-loader` folder:
-
-```sh
-cargo build --release
-```
-
-Then we need to convert it to a binary that can be flashed onto the Pico:
-
-```sh
-rust-objcopy -O binary \
-  pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader \
-  pico-loader.bin
-```
-
-## 4. Combine firmware and bundle
-
-```sh
-lv2-bundle combine \
-  --firmware pico-loader.bin \
-  --bundle plugins.bundle \
-  --output pico-image.bin
-```
 
 `pico-image.bin` is a 2 MiB raw flash image. Firmware starts at `0x10000000`;
 the bundle starts at `0x10180000`.

@@ -17,22 +17,19 @@ const RP2350_FAMILY_ID: u32 = 0xe48bff56;
 
 fn main() -> ExitCode {
     let arguments: Vec<String> = env::args().skip(1).collect();
-    if arguments.first().map(String::as_str) == Some("combine") {
-        return combine(&arguments[1..]);
-    }
     if arguments.first().map(String::as_str) == Some("uf2") {
         return uf2(&arguments[1..]);
     }
     if arguments.first().map(String::as_str) != Some("pack") {
         eprintln!(
-            "usage: lv2-bundle pack -o BUNDLE --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
+            "usage: lv2-bundle pack -o IMAGE -f FIRMWARE --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
         );
-        eprintln!("       lv2-bundle combine -f FIRMWARE -b BUNDLE -o IMAGE");
         eprintln!("       lv2-bundle uf2 -i IMAGE -o IMAGE.uf2");
         return ExitCode::from(2);
     }
 
     let mut output = None;
+    let mut firmware_path = None;
     let mut graph_path = None;
     let mut plugins = Vec::new();
     let mut index = 1;
@@ -41,6 +38,10 @@ fn main() -> ExitCode {
             "-o" | "--output" => {
                 index += 1;
                 output = arguments.get(index).cloned();
+            }
+            "-f" | "--firmware" => {
+                index += 1;
+                firmware_path = arguments.get(index).cloned();
             }
             "--graph" | "--ingen" => {
                 index += 1;
@@ -66,8 +67,10 @@ fn main() -> ExitCode {
         index += 1;
     }
 
-    let (Some(output), Some(graph_path)) = (output, graph_path) else {
-        eprintln!("missing output path");
+    let (Some(output), Some(firmware_path), Some(graph_path)) =
+        (output, firmware_path, graph_path)
+    else {
+        eprintln!("missing output, firmware, or graph path");
         return ExitCode::from(2);
     };
     if plugins.is_empty() || plugins.len() > u32::MAX as usize {
@@ -125,7 +128,19 @@ fn main() -> ExitCode {
             bundle.len()
         ));
     }
-    if let Err(error) = fs::write(&output, bundle) {
+
+    let firmware = match fs::read(&firmware_path) {
+        Ok(bytes) => bytes,
+        Err(error) => return fail(&format!("cannot read {firmware_path}: {error}")),
+    };
+    let bundle_offset = FLASH_ADDRESS - 0x1000_0000;
+    if firmware.len() > bundle_offset {
+        return fail("firmware overlaps the reserved bundle region");
+    }
+    let mut image = vec![0xff; 2 * 1024 * 1024];
+    image[..firmware.len()].copy_from_slice(&firmware);
+    image[bundle_offset..bundle_offset + bundle.len()].copy_from_slice(&bundle);
+    if let Err(error) = fs::write(&output, image) {
         return fail(&format!("cannot write {output}: {error}"));
     }
     println!("wrote {output}");
@@ -259,61 +274,6 @@ fn node_for_port(nodes: &[(String, String)], port: &str) -> Result<usize, String
         })
         .map(|(index, _)| index)
         .ok_or_else(|| format!("Ingen arc port {port} does not belong to a block"))
-}
-
-fn combine(arguments: &[String]) -> ExitCode {
-    let mut firmware_path = None;
-    let mut bundle_path = None;
-    let mut output = None;
-    let mut index = 0;
-    while index < arguments.len() {
-        match arguments[index].as_str() {
-            "-f" | "--firmware" => {
-                index += 1;
-                firmware_path = arguments.get(index).cloned();
-            }
-            "-b" | "--bundle" => {
-                index += 1;
-                bundle_path = arguments.get(index).cloned();
-            }
-            "-o" | "--output" => {
-                index += 1;
-                output = arguments.get(index).cloned();
-            }
-            argument => return fail(&format!("unknown argument: {argument}")),
-        }
-        index += 1;
-    }
-    let (Some(firmware_path), Some(bundle_path), Some(output)) =
-        (firmware_path, bundle_path, output)
-    else {
-        return fail("combine requires firmware, bundle, and output paths");
-    };
-    let firmware = match fs::read(&firmware_path) {
-        Ok(bytes) => bytes,
-        Err(error) => return fail(&format!("cannot read {firmware_path}: {error}")),
-    };
-    let bundle = match fs::read(&bundle_path) {
-        Ok(bytes) => bytes,
-        Err(error) => return fail(&format!("cannot read {bundle_path}: {error}")),
-    };
-    if bundle.len() > MAX_SIZE {
-        return fail("bundle exceeds the reserved flash region");
-    }
-    let bundle_offset = FLASH_ADDRESS - 0x1000_0000;
-    if firmware.len() > bundle_offset {
-        return fail("firmware overlaps the reserved bundle region");
-    }
-    let mut image = vec![0xff; 2 * 1024 * 1024];
-    image[..firmware.len()].copy_from_slice(&firmware);
-    image[bundle_offset..bundle_offset + bundle.len()].copy_from_slice(&bundle);
-    match fs::write(&output, image) {
-        Ok(()) => {
-            println!("wrote {output}");
-            ExitCode::SUCCESS
-        }
-        Err(error) => fail(&format!("cannot write {output}: {error}")),
-    }
 }
 
 fn uf2(arguments: &[String]) -> ExitCode {
