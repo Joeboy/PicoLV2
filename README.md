@@ -43,8 +43,9 @@ What exists so far is:
 - Several LV2 [plugins](./plugins/) that can be built or run for Linux or the
   Pico 2. Some in Rust, some in C. I don't claim they're particularly good but
   they're handy for testing.
-- [picolv2-firmware](./picolv2-firmware/) - A Rust / [Embassy](https://embassy.dev/)
-  firmware project that can run the plugins on the Pico.
+- [picolv2-firmware](./picolv2-firmware/) - A Rust /
+  [Embassy](https://embassy.dev/) firmware project that can run the plugins on
+  the Pico.
 - [picolv2-image](./picolv2-image/) - A tool for bundling plugins with the
   firmware, into an image that can be flashed onto the Pico
 - USB midi input and audio output for the Pico
@@ -55,14 +56,14 @@ What exists so far is:
   but being able to do effects is the real goal.
 - Experiment with existing LV2 plugins. Hopefully some will work with minimal
   porting, but we'll see.
-- Connections. Some way of connecting up a
-  [DAG](https://en.wikipedia.org/wiki/Directed_acyclic_graph) of plugins
+- Making there be a useful set of LV2 plugins built for it.
 - At some point I'm going to have to figure out what to do about controls. Maybe
   eventually there will be hardware with knobs. Or for now we could wire it up
   to MIDI controller messages?
 - Latency is currently poor, 50ms or something. I don't care much yet as it's
   still an experiment, but it could probably be improved by reducing buffer
   sizes etc.
+- General testing. Lots of testing.
 
 ## AI declaration
 
