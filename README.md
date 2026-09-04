@@ -63,3 +63,7 @@ What exists so far is:
 - Latency is currently poor, 50ms or something. I don't care much yet as it's
   still an experiment, but it could probably be improved by reducing buffer
   sizes etc.
+
+## AI declaration
+
+This project was assisted by AI tools (mostly github copilot with auto-models).
