@@ -1,7 +1,7 @@
 use std::{env, fs, io::BufReader, process::ExitCode};
 
-use goblin::elf::{Elf, program_header::PT_LOAD};
-use lv2_bundle_format::{Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, VERSION};
+use goblin::elf::{program_header::PT_LOAD, Elf};
+use lv2_bundle_format::{Bundle, Graph, FLASH_ADDRESS, MAGIC, MAX_SIZE, VERSION};
 use rio_api::{
     model::{Subject, Term},
     parser::TriplesParser,
@@ -26,10 +26,10 @@ fn main() -> ExitCode {
     }
     if arguments.first().map(String::as_str) != Some("pack") {
         eprintln!(
-            "usage: lv2-bundle pack -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
+            "usage: picolv2-image pack -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
         );
-        eprintln!("       lv2-bundle uf2 -i IMAGE -o IMAGE.uf2");
-        eprintln!("       lv2-bundle info -i IMAGE");
+        eprintln!("       picolv2-image uf2 -i IMAGE -o IMAGE.uf2");
+        eprintln!("       picolv2-image info -i IMAGE");
         return ExitCode::from(2);
     }
 

@@ -1,6 +1,6 @@
-# lv2-bundle
+# picolv2-image
 
-`lv2-bundle` creates an image that can be flashed onto a Raspberry Pi Pico 2,
+`picolv2-image` creates an image that can be flashed onto a Raspberry Pi Pico 2,
 containing:
 
 - The [pico-loader](../../pico-loader/) firmware
@@ -14,7 +14,7 @@ To create a plugin chain and flash it to the Pico, the complete process is:
 
 1. Create your plugin chain as an Ingen graph
 2. Acquire or build copies of: the Pico firmware (`pico-loader`); your desired
-   plugins (built for PicoLv2); and the `lv2-bundle` utility.
+  plugins (built for PicoLv2); and the `picolv2-image` utility.
 3. Pack the plugins and combine them with the firmware ELF into a flash image.
 4. Flash the image onto the Pico using either the USB bootloader or a debug
    probe.
@@ -46,15 +46,15 @@ make
 cd ..
 ```
 
-#### Build lv2-bundle
+#### Build picolv2-image
 
 ```sh
-cd tools/lv2-bundle
+cd tools/picolv2-image
 cargo build --release
 cd ../..
 ```
 
-the rest of this README assumes `lv2-bundle` is on your PATH
+the rest of this README assumes `picolv2-image` is on your PATH
 
 #### Build pico-loader
 
@@ -66,7 +66,7 @@ cd ..
 
 ## 2.5 Convert the pico-loader ELF to binary (optional)
 
-You probably don't need to do this as `lv2-bundle` can now convert the raw ELF
+You probably don't need to do this as `picolv2-image` can now convert the raw ELF
 file itself. In case you want to for some reason:
 
 ```sh
@@ -78,7 +78,7 @@ rust-objcopy -O binary \
 ## 3. Pack the plugins and combine them with the firmware
 
 ```sh
-lv2-bundle pack \
+picolv2-image pack \
   --firmware-elf pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader \
   --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
@@ -112,7 +112,7 @@ the bundle starts at `0x10180000`.
 Convert the combined raw image to UF2:
 
 ```sh
-lv2-bundle uf2 \
+picolv2-image uf2 \
   --input pico-image.bin \
   --output pico-image.uf2
 ```
@@ -145,7 +145,7 @@ probe-rs attach \
 ## Bonus 2: Inspect The Image
 
 ```sh
-lv2-bundle info -i pico-image.bin
+picolv2-image info -i pico-image.bin
 ```
 
 ```text

@@ -20,17 +20,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
-name = "lv2-bundle"
-version = "0.1.0"
-dependencies = [
- "goblin",
- "lv2-bundle-format",
- "oxiri",
- "rio_api",
- "rio_turtle",
-]
-
-[[package]]
 name = "lv2-bundle-format"
 version = "0.1.0"
 
@@ -48,6 +37,17 @@ name = "oxiri"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54b4ed3a7192fa19f5f48f99871f2755047fabefd7f222f12a1df1773796a102"
+
+[[package]]
+name = "picolv2-image"
+version = "0.1.0"
+dependencies = [
+ "goblin",
+ "lv2-bundle-format",
+ "oxiri",
+ "rio_api",
+ "rio_turtle",
+]
 
 [[package]]
 name = "plain"

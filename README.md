@@ -45,7 +45,7 @@ What exists so far is:
   they're handy for testing.
 - [pico-loader](./pico-loader/) - A Rust / [Embassy](https://embassy.dev/)
   firmware project that can run the plugins on the Pico.
-- [lv2-bundle](./tools/lv2-bundle/) - A tool for bundling plugins with the
+- [picolv2-image](./tools/picolv2-image/) - A tool for bundling plugins with the
   firmware, into an image that can be flashed onto the Pico
 - USB midi input and audio output for the Pico
 
