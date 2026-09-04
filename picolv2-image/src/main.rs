@@ -1,15 +1,11 @@
-use std::{env, fs, io::BufReader, process::ExitCode};
+mod ingen;
+mod lv2;
+mod turtle;
+
+use std::{env, fs, process::ExitCode};
 
 use goblin::elf::{Elf, program_header::PT_LOAD};
-use picolv2_image_format::{
-    Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, METADATA_MAGIC, METADATA_VERSION, PortKind,
-    VERSION,
-};
-use rio_api::{
-    model::{Literal, Subject, Term},
-    parser::TriplesParser,
-};
-use rio_turtle::TurtleParser;
+use picolv2_image_format::{Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, VERSION};
 
 const UF2_BLOCK_SIZE: usize = 512;
 const UF2_PAYLOAD_SIZE: usize = 256;
@@ -108,7 +104,7 @@ fn main() -> ExitCode {
     }
 
     let graph = match graph_path.ends_with(".ttl") {
-        true => match ingen_graph(&graph_path) {
+        true => match ingen::compile(&graph_path) {
             Ok(bytes) => bytes,
             Err(error) => return fail(&error),
         },
@@ -135,7 +131,7 @@ fn main() -> ExitCode {
             Ok(bytes) => bytes,
             Err(error) => return fail(&format!("cannot read {binary_path}: {error}")),
         };
-        let metadata = match compile_metadata(&metadata_path) {
+        let metadata = match lv2::compile_metadata(&metadata_path) {
             Ok(bytes) => bytes,
             Err(error) => return fail(&error),
         };
@@ -216,225 +212,6 @@ fn firmware_from_elf(path: &str) -> Result<Vec<u8>, String> {
 fn fail(message: &str) -> ExitCode {
     eprintln!("error: {message}");
     ExitCode::from(1)
-}
-
-const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
-const INGEN_BLOCK: &str = "http://drobilla.net/ns/ingen#Block";
-const INGEN_ARC: &str = "http://drobilla.net/ns/ingen#Arc";
-const INGEN_TAIL: &str = "http://drobilla.net/ns/ingen#tail";
-const INGEN_HEAD: &str = "http://drobilla.net/ns/ingen#head";
-const LV2_PROTOTYPE: &str = "http://lv2plug.in/ns/lv2core#prototype";
-const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
-const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
-const LV2_DEFAULT: &str = "http://lv2plug.in/ns/lv2core#default";
-const LV2_INPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#InputPort";
-const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
-const LV2_AUDIO_PORT: &str = "http://lv2plug.in/ns/lv2core#AudioPort";
-const LV2_CONTROL_PORT: &str = "http://lv2plug.in/ns/lv2core#ControlPort";
-const ATOM_PORT: &str = "http://lv2plug.in/ns/ext/atom#AtomPort";
-
-fn ingen_graph(path: &str) -> Result<Vec<u8>, String> {
-    let file = fs::File::open(path).map_err(|error| format!("cannot read {path}: {error}"))?;
-    let base = oxiri::Iri::parse(format!("file:{path}"))
-        .map_err(|_| "invalid graph base URI".to_string())?;
-    let mut triples = Vec::new();
-    TurtleParser::new(BufReader::new(file), Some(base))
-        .parse_all(&mut |triple| {
-            triples.push(OwnedTriple {
-                subject: subject_key(triple.subject),
-                predicate: triple.predicate.iri.to_string(),
-                object: term_key(triple.object),
-            });
-            Ok::<(), rio_turtle::TurtleError>(())
-        })
-        .map_err(|error| format!("invalid Ingen Turtle: {error}"))?;
-
-    let mut nodes = Vec::new();
-    for triple in &triples {
-        if triple.predicate == RDF_TYPE && triple.object == INGEN_BLOCK {
-            if triple.subject.starts_with("_:") {
-                return Err("Ingen block must have a URI".into());
-            }
-            let node = &triple.subject;
-            let prototype = triples
-                .iter()
-                .find(|candidate| {
-                    candidate.subject == triple.subject && candidate.predicate == LV2_PROTOTYPE
-                })
-                .map(|candidate| candidate.object.as_str())
-                .ok_or_else(|| format!("Ingen block {node} has no lv2:prototype"))?;
-            nodes.push((node.to_string(), prototype.to_string()));
-        }
-    }
-    if nodes.is_empty() {
-        return Err("Ingen graph contains no plugin blocks".into());
-    }
-
-    let mut edges = Vec::new();
-    for triple in &triples {
-        if triple.predicate != RDF_TYPE || triple.object != INGEN_ARC {
-            continue;
-        }
-        let arc = triple.subject.as_str();
-        let tail = object_for(&triples, arc, INGEN_TAIL)?;
-        let head = object_for(&triples, arc, INGEN_HEAD)?;
-        let source = node_for_port(&nodes, tail)?;
-        let destination = node_for_port(&nodes, head)?;
-        edges.push((source as u16, destination as u16));
-    }
-
-    let mut result = Vec::new();
-    result.extend_from_slice(picolv2_image_format::GRAPH_MAGIC);
-    result.extend_from_slice(&picolv2_image_format::GRAPH_VERSION.to_le_bytes());
-    result.extend_from_slice(&(nodes.len() as u16).to_le_bytes());
-    result.extend_from_slice(&(edges.len() as u16).to_le_bytes());
-    for (_, prototype) in &nodes {
-        result.extend_from_slice(&(prototype.len() as u16).to_le_bytes());
-        result.extend_from_slice(&[0, 0]);
-        result.extend_from_slice(prototype.as_bytes());
-    }
-    for (source, destination) in edges {
-        result.extend_from_slice(&source.to_le_bytes());
-        result.push(0);
-        result.push(0);
-        result.extend_from_slice(&destination.to_le_bytes());
-        result.push(0);
-        result.push(0);
-    }
-    Ok(result)
-}
-
-fn compile_metadata(path: &str) -> Result<Vec<u8>, String> {
-    let file = fs::File::open(path).map_err(|error| format!("cannot read {path}: {error}"))?;
-    let base = oxiri::Iri::parse(format!("file:{path}"))
-        .map_err(|_| format!("invalid metadata base URI: {path}"))?;
-    let mut triples = Vec::new();
-    TurtleParser::new(BufReader::new(file), Some(base))
-        .parse_all(&mut |triple| {
-            triples.push(OwnedTriple {
-                subject: subject_key(triple.subject),
-                predicate: triple.predicate.iri.to_string(),
-                object: term_key(triple.object),
-            });
-            Ok::<(), rio_turtle::TurtleError>(())
-        })
-        .map_err(|error| format!("invalid plugin Turtle {path}: {error}"))?;
-
-    let mut port_subjects: Vec<_> = triples
-        .iter()
-        .filter(|triple| triple.predicate == LV2_PORT)
-        .map(|triple| triple.object.clone())
-        .collect();
-    port_subjects.sort();
-    port_subjects.dedup();
-    if port_subjects.is_empty() || port_subjects.len() > u16::MAX as usize {
-        return Err(format!("plugin metadata {path} has an invalid port count"));
-    }
-
-    let mut ports = Vec::new();
-    for subject in port_subjects {
-        let types: Vec<_> = triples
-            .iter()
-            .filter(|triple| triple.subject == subject && triple.predicate == RDF_TYPE)
-            .map(|triple| triple.object.as_str())
-            .collect();
-        let kind = if types.contains(&ATOM_PORT) && types.contains(&LV2_INPUT_PORT) {
-            PortKind::AtomInput
-        } else if types.contains(&LV2_AUDIO_PORT) && types.contains(&LV2_INPUT_PORT) {
-            PortKind::AudioInput
-        } else if types.contains(&LV2_AUDIO_PORT) && types.contains(&LV2_OUTPUT_PORT) {
-            PortKind::AudioOutput
-        } else if types.contains(&LV2_CONTROL_PORT) && types.contains(&LV2_INPUT_PORT) {
-            PortKind::ControlInput
-        } else {
-            return Err(format!(
-                "plugin metadata {path} has unsupported port {subject}"
-            ));
-        };
-        let index = object_for(&triples, &subject, LV2_INDEX).and_then(|value| {
-            value
-                .parse::<u32>()
-                .map_err(|_| format!("plugin metadata {path} has invalid port index {value}"))
-        })?;
-        let default = triples
-            .iter()
-            .find(|triple| triple.subject == subject && triple.predicate == LV2_DEFAULT)
-            .map(|triple| {
-                triple.object.parse::<f32>().map_err(|_| {
-                    format!(
-                        "plugin metadata {path} has invalid default {}",
-                        triple.object
-                    )
-                })
-            })
-            .transpose()?;
-        ports.push((index, kind, default));
-    }
-    ports.sort_by_key(|(index, _, _)| *index);
-
-    let mut result = Vec::with_capacity(16 + ports.len() * 12);
-    result.extend_from_slice(METADATA_MAGIC);
-    result.extend_from_slice(&METADATA_VERSION.to_le_bytes());
-    result.extend_from_slice(&(ports.len() as u16).to_le_bytes());
-    result.extend_from_slice(&[0, 0]);
-    for (index, kind, default) in ports {
-        result.push(kind as u8);
-        result.push(default.is_some() as u8);
-        result.extend_from_slice(&[0, 0]);
-        result.extend_from_slice(&index.to_le_bytes());
-        result.extend_from_slice(&default.unwrap_or(0.0).to_le_bytes());
-    }
-    Ok(result)
-}
-
-struct OwnedTriple {
-    subject: String,
-    predicate: String,
-    object: String,
-}
-
-fn subject_key(subject: Subject<'_>) -> String {
-    match subject {
-        Subject::NamedNode(node) => node.iri.to_string(),
-        Subject::BlankNode(node) => format!("_:{}", node.id),
-        Subject::Triple(_) => String::new(),
-    }
-}
-
-fn term_key(term: Term<'_>) -> String {
-    match term {
-        Term::NamedNode(node) => node.iri.to_string(),
-        Term::BlankNode(node) => format!("_:{}", node.id),
-        Term::Literal(
-            Literal::Simple { value }
-            | Literal::LanguageTaggedString { value, .. }
-            | Literal::Typed { value, .. },
-        ) => value.to_string(),
-        Term::Triple(_) => String::new(),
-    }
-}
-
-fn object_for<'a>(
-    triples: &'a [OwnedTriple],
-    subject: &str,
-    predicate: &str,
-) -> Result<&'a str, String> {
-    triples
-        .iter()
-        .find(|triple| triple.subject == subject && triple.predicate == predicate)
-        .map(|triple| triple.object.as_str())
-        .ok_or_else(|| format!("Ingen arc missing {predicate}"))
-}
-
-fn node_for_port(nodes: &[(String, String)], port: &str) -> Result<usize, String> {
-    nodes
-        .iter()
-        .enumerate()
-        .find(|(_, (node, _))| {
-            port.starts_with(node) && port.as_bytes().get(node.len()) == Some(&b'/')
-        })
-        .map(|(index, _)| index)
-        .ok_or_else(|| format!("Ingen arc port {port} does not belong to a block"))
 }
 
 fn uf2(arguments: &[String]) -> ExitCode {
