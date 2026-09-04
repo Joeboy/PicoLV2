@@ -115,3 +115,23 @@ probe-rs attach \
   --rtt-scan-memory \
   pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader
 ```
+
+## Bonus 2: Inspect The Image
+
+```sh
+lv2-bundle info -i pico-image.bin
+```
+
+```text
+image: pico-image.bin (2097152 bytes)
+firmware: 152284 bytes (0x10000000..0x100252dc)
+bundle: 524288 bytes (0x10180000..), format version 2
+plugins: 3
+  [0] https://joebutton.co.uk/lv2/tine-piano (binary 24476 bytes, metadata 738 bytes)
+  [1] https://joebutton.co.uk/lv2/string-synth (binary 21632 bytes, metadata 744 bytes)
+  [2] https://joebutton.co.uk/lv2/delay-poc (binary 17888 bytes, metadata 1183 bytes)
+graph: 2 nodes, 1 edges
+  node[0] https://joebutton.co.uk/lv2/tine-piano
+  node[1] https://joebutton.co.uk/lv2/delay-poc
+  edge[0] node[0]:0 -> node[1]:0
+```

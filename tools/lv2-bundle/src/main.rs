@@ -1,6 +1,6 @@
 use std::{env, fs, io::BufReader, process::ExitCode};
 
-use lv2_bundle_format::{FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, VERSION};
+use lv2_bundle_format::{Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, VERSION};
 use rio_api::{
     model::{Subject, Term},
     parser::TriplesParser,
@@ -20,11 +20,15 @@ fn main() -> ExitCode {
     if arguments.first().map(String::as_str) == Some("uf2") {
         return uf2(&arguments[1..]);
     }
+    if arguments.first().map(String::as_str) == Some("info") {
+        return info(&arguments[1..]);
+    }
     if arguments.first().map(String::as_str) != Some("pack") {
         eprintln!(
             "usage: lv2-bundle pack -o IMAGE -f FIRMWARE --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
         );
         eprintln!("       lv2-bundle uf2 -i IMAGE -o IMAGE.uf2");
+        eprintln!("       lv2-bundle info -i IMAGE");
         return ExitCode::from(2);
     }
 
@@ -341,4 +345,85 @@ fn uf2(arguments: &[String]) -> ExitCode {
 
 fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
     bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn info(arguments: &[String]) -> ExitCode {
+    let mut input = None;
+    let mut index = 0;
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "-i" | "--input" => {
+                index += 1;
+                input = arguments.get(index).cloned();
+            }
+            argument => return fail(&format!("unknown argument: {argument}")),
+        }
+        index += 1;
+    }
+    let Some(input) = input else {
+        return fail("info requires an input path");
+    };
+    let image = match fs::read(&input) {
+        Ok(bytes) => bytes,
+        Err(error) => return fail(&format!("cannot read {input}: {error}")),
+    };
+    let bundle_offset = FLASH_ADDRESS - 0x1000_0000;
+    let Some(bundle_bytes) = image.get(bundle_offset..) else {
+        return fail("image is smaller than the firmware region");
+    };
+    let bundle = match Bundle::parse(bundle_bytes) {
+        Ok(bundle) => bundle,
+        Err(error) => return fail(&format!("invalid bundle: {error:?}")),
+    };
+
+    let firmware_bytes = &image[..bundle_offset.min(image.len())];
+    let firmware_size = firmware_bytes
+        .iter()
+        .rposition(|byte| *byte != 0xff)
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    println!("image: {input} ({} bytes)", image.len());
+    println!("firmware: {firmware_size} bytes (0x{:08x}..0x{:08x})", 0x1000_0000, 0x1000_0000 + firmware_size);
+    println!(
+        "bundle: {} bytes (0x{FLASH_ADDRESS:08x}..), format version {VERSION}",
+        bundle_bytes.len()
+    );
+    println!("plugins: {}", bundle.plugin_count());
+    for plugin_index in 0..bundle.plugin_count() {
+        let entry = match bundle.entry_at(plugin_index) {
+            Ok(entry) => entry,
+            Err(error) => return fail(&format!("invalid plugin entry {plugin_index}: {error:?}")),
+        };
+        println!(
+            "  [{plugin_index}] {} (binary {} bytes, metadata {} bytes)",
+            String::from_utf8_lossy(entry.uri),
+            entry.binary.len(),
+            entry.metadata.len(),
+        );
+    }
+
+    let graph = match bundle.graph() {
+        Ok(graph) => graph,
+        Err(error) => return fail(&format!("invalid graph: {error:?}")),
+    };
+    println!("graph: {} nodes, {} edges", graph.node_count, graph.edge_count);
+    for node_index in 0..graph.node_count {
+        let Ok(node) = graph.node(node_index) else {
+            return fail(&format!("invalid graph node {node_index}"));
+        };
+        println!(
+            "  node[{node_index}] {}",
+            String::from_utf8_lossy(node.uri)
+        );
+    }
+    for edge_index in 0..graph.edge_count {
+        let Ok(edge) = graph.edge(edge_index) else {
+            return fail(&format!("invalid graph edge {edge_index}"));
+        };
+        println!(
+            "  edge[{edge_index}] node[{}]:{} -> node[{}]:{}",
+            edge.source_node, edge.source_port, edge.destination_node, edge.destination_port
+        );
+    }
+    ExitCode::SUCCESS
 }

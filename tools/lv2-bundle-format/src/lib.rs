@@ -88,6 +88,14 @@ impl<'a> Bundle<'a> {
         Graph::parse(self.graph_bytes()?).map_err(|_| BundleError::Graph)
     }
 
+    pub fn plugin_count(&self) -> u32 {
+        self.count
+    }
+
+    pub fn entry_at(&self, index: u32) -> Result<Entry<'a>, BundleError> {
+        self.entry(index)
+    }
+
     fn graph_bytes(&self) -> Result<&'a [u8], BundleError> {
         let mut offset = HEADER_SIZE;
         for index in 0..self.count {
