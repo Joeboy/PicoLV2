@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     }
     if arguments.first().map(String::as_str) != Some("create") {
         eprintln!(
-            "usage: PICOLV2_PATH=DIR[:DIR...] picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI [...]"
+            "usage: PICOLV2_PATH=DIR[:DIR...] picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl [--plugin URI [...]]"
         );
         eprintln!("       picolv2-image uf2 -i IMAGE -o IMAGE.uf2");
         eprintln!("       picolv2-image info -i IMAGE");
@@ -94,8 +94,8 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    if plugins.is_empty() || plugins.len() > u32::MAX as usize {
-        eprintln!("bundle must contain at least one plugin");
+    if plugins.len() > u32::MAX as usize {
+        eprintln!("too many plugins");
         return ExitCode::from(2);
     }
     let search_path = match env::var("PICOLV2_PATH") {
@@ -113,8 +113,28 @@ fn main() -> ExitCode {
             Err(error) => return fail(&format!("cannot read {graph_path}: {error}")),
         },
     };
-    if Graph::parse(&graph).is_err() {
-        return fail("invalid graph file");
+    let parsed_graph = match Graph::parse(&graph) {
+        Ok(parsed_graph) => parsed_graph,
+        Err(_) => return fail("invalid graph file"),
+    };
+    if plugins.is_empty() {
+        for node_index in 0..parsed_graph.node_count {
+            let node = match parsed_graph.node(node_index) {
+                Ok(node) => node,
+                Err(_) => return fail("invalid graph node"),
+            };
+            let uri = match String::from_utf8(node.uri.to_vec()) {
+                Ok(uri) => uri,
+                Err(_) => return fail("graph node URI is not valid UTF-8"),
+            };
+            if !plugins.contains(&uri) {
+                plugins.push(uri);
+            }
+        }
+    }
+    if plugins.is_empty() {
+        eprintln!("bundle must contain at least one plugin");
+        return ExitCode::from(2);
     }
     let mut bundle = Vec::new();
     bundle.extend_from_slice(MAGIC);
