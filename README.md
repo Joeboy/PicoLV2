@@ -43,9 +43,9 @@ What exists so far is:
 - Several LV2 [plugins](./plugins/) that can be built or run for Linux or the
   Pico 2. Some in Rust, some in C. I don't claim they're particularly good but
   they're handy for testing.
-- [pico-loader/](./pico-loader) - A Rust / [Embassy](https://embassy.dev/)
+- [pico-loader](./pico-loader/) - A Rust / [Embassy](https://embassy.dev/)
   firmware project that can run the plugins on the Pico.
-- [lv2-bundle](./tools/lv2-bundle/)` - A tool for bundling plugins with the
+- [lv2-bundle](./tools/lv2-bundle/) - A tool for bundling plugins with the
   firmware, into an image that can be flashed onto the Pico
 - USB midi input and audio output for the Pico
 

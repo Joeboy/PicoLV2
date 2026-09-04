@@ -5,35 +5,62 @@ PicoLv2 (`pico-loader`) firmware and the plugins package. This image can then be
 flashed to a Raspberry Pi Pico 2. See [here](https://github.com/Joeboy/PicoLV2)
 if you're somehow reading this without any context.
 
-The complete process is:
+To create a plugin chain and flash it to the Pico, the complete process is:
 
-1. Acquire or build copies of the Pico firmware (`pico-loader`), your desired
-   plugins and the `lv2-bundle` utility. For the latter just do
-   `cargo build --release` in the `lv2-bundle` folder.
-2. Convert the Pico firmware ELF to a raw binary.
-3. Pack the plugins and combine them with the firmware into a flash image.
-4. Flash the image using either the USB bootloader or a debug probe.
+1. Create your plugin chain as an Ingen graph
+2. Acquire or build copies of: the Pico firmware (`pico-loader`); your desired
+   plugins (built for PicoLv2); and the `lv2-bundle` utility.
+3. Convert the Pico firmware ELF to a raw binary.
+4. Pack the plugins and combine them with the firmware into a flash image.
+5. Flash the image onto the Pico using either the USB bootloader or a debug
+   probe.
 
-## 1. Acquire or build required bits
+## 1. Create your plugin chain as an Ingen graph file
+
+This is a bit of a TODO, I haven't actually tried using "real" Ingen files yet.
+They can be created by [Ingen](https://gitlab.com/drobilla/ingen). Which doesn't
+seem to have a proper homepage that I can find, but see
+[this video](https://www.youtube.com/watch?v=eMj-q5adAZ4) to get an idea.
+Basically it allows you to connect up LV2 plugins, listen to the results on your
+computer, then export the plugin graph (ie. effects chain or synth or whatever)
+as a file that looks something like [this](../../graph/main.ttl).
+
+## 2. Acquire or build required bits
 
 ### Building from the repo
+
+Start at the root of this repo.
+
+#### Build the plugins
+
+At the time of writing the only plugins that will work are the ones in this
+repo:
 
 ```sh
 cd plugins
 make
 cd ..
+```
 
+#### Build lv2-bundle
+
+```sh
 cd tools/lv2-bundle
 cargo build --release
 cd ../..
-# (the rest of this README assumes lv2-bundle is on your PATH)
+```
 
+the rest of this README assumes lv2-bundle is on your PATH
+
+#### Build pico-loader
+
+```sh
 cd pico-loader
 cargo build --release
 cd ..
 ```
 
-## 2. Convert the Pico firmware ELF to a raw binary
+## 3. Convert the Pico firmware ELF to a raw binary
 
 The idea is that eventually I'll just ship the binary, but documenting this here
 anyway.
@@ -47,7 +74,7 @@ rust-objcopy -O binary \
   pico-loader.bin
 ```
 
-## 3. Pack the plugins and combine with the firmware
+## 4. Pack the plugins and combine with the firmware
 
 Pass one `--plugin` option for each plugin. Each option contains the plugin's
 LV2 URI, Pico binary, and TTL metadata file:
@@ -80,9 +107,9 @@ control-port arcs and multi-port routing are not yet supported.
 `pico-image.bin` is a 2 MiB raw flash image. Firmware starts at `0x10000000`;
 the bundle starts at `0x10180000`.
 
-## Flash the Pico
+## 5. Flash the Pico
 
-### Option 1 (UNTESTED!): Flash via USB / UF2
+### Option 1 (AS YET UNTESTED BY ME!): Flash via USB / UF2
 
 Convert the combined raw image to UF2:
 
