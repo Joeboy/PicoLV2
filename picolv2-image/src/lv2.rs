@@ -4,6 +4,7 @@ use crate::turtle::{self, RDF_TYPE};
 use picolv2_image_format::{METADATA_MAGIC, METADATA_VERSION, PortKind};
 
 const RDFS_SEE_ALSO: &str = "http://www.w3.org/2000/01/rdf-schema#seeAlso";
+const LV2_BINARY: &str = "http://lv2plug.in/ns/lv2core#binary";
 const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
 const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
 const LV2_DEFAULT: &str = "http://lv2plug.in/ns/lv2core#default";
@@ -95,4 +96,55 @@ pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>
         result.extend_from_slice(&default.unwrap_or(0.0).to_le_bytes());
     }
     Ok(result)
+}
+
+pub fn discover(plugin_uri: &str, search_path: &str) -> Result<(String, String), String> {
+    for root in search_path.split(':').filter(|path| !path.is_empty()) {
+        let root = Path::new(root);
+        let entries = std::fs::read_dir(root).map_err(|error| {
+            format!("cannot read PICOLV2_PATH entry {}: {error}", root.display())
+        })?;
+        for entry in entries {
+            let entry =
+                entry.map_err(|error| format!("cannot read PICOLV2_PATH entry: {error}"))?;
+            let bundle = entry.path();
+            if !bundle.is_dir() {
+                continue;
+            }
+            let manifest = bundle.join("manifest.ttl");
+            if !manifest.is_file() {
+                continue;
+            }
+            let manifest_path = manifest.to_string_lossy().into_owned();
+            let triples = turtle::parse(&manifest_path, "plugin manifest")?;
+            if turtle::object_for(&triples, plugin_uri, RDF_TYPE).is_none() {
+                continue;
+            }
+            let binary_uri =
+                turtle::object_for(&triples, plugin_uri, LV2_BINARY).ok_or_else(|| {
+                    format!("plugin manifest {manifest_path} has no lv2:binary for {plugin_uri}")
+                })?;
+            let binary_path = local_path(binary_uri, &manifest_path, "binary")?;
+            return Ok((binary_path, manifest_path));
+        }
+    }
+    Err(format!(
+        "plugin URI not found in PICOLV2_PATH: {plugin_uri}"
+    ))
+}
+
+fn local_path(uri: &str, referring_path: &str, kind: &str) -> Result<String, String> {
+    let path = uri
+        .strip_prefix("file:")
+        .ok_or_else(|| format!("plugin {kind} {uri} is not a local file"))?;
+    let path = Path::new(path);
+    let path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        Path::new(referring_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(path)
+    };
+    Ok(path.to_string_lossy().into_owned())
 }

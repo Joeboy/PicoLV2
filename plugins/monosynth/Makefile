@@ -42,9 +42,11 @@ OUT := $(BUILD_DIR)/plugin.so
 # binary to live in its own bundle directory. Point `LV2_PATH` at the parent
 # of this repo's monosynth directory (or symlink the bundle into ~/.lv2/)
 # to make hosts like jalv find it: `jalv https://joebutton.co.uk/lv2/monosynth-poc`.
-BUNDLE_DIR := monosynth.lv2
+BUNDLE_SOURCE := monosynth.lv2
+PICOLV2_PATH ?= build/picolv2/$(TARGET)
+BUNDLE_DIR := $(PICOLV2_PATH)/monosynth.lv2
 
-.PHONY: all pico linux bundle test clean info
+.PHONY: all pico linux bundle install install-pico test clean info
 
 all: $(OUT)
 
@@ -55,8 +57,16 @@ linux:
 	$(MAKE) TARGET=linux STRIP=$(STRIP)
 
 bundle:
-	$(MAKE) TARGET=linux STRIP=$(STRIP)
-	cp build/linux/plugin.so $(BUNDLE_DIR)/plugin.so
+	$(MAKE) TARGET=$(TARGET) STRIP=$(STRIP)
+	mkdir -p $(BUNDLE_DIR)
+	cp $(BUNDLE_SOURCE)/*.ttl $(BUNDLE_DIR)/
+	cp $(OUT) $(BUNDLE_DIR)/plugin.so
+
+install:
+	$(MAKE) TARGET=linux STRIP=$(STRIP) bundle
+
+install-pico:
+	$(MAKE) TARGET=pico STRIP=$(STRIP) bundle
 
 SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c
 

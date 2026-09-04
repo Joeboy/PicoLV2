@@ -60,8 +60,20 @@ repo:
 
 ```sh
 cd plugins
-make
+make bundle
 cd ..
+```
+
+This creates plugin bundles under `plugins/build/picolv2/linux` and
+`plugins/build/picolv2/pico`.
+
+Individual plugins can also be installed directly under `PICOLV2_PATH`:
+
+```sh
+PICOLV2_PATH=$PWD/plugins/build/picolv2/pico \
+  make -C plugins/tine-piano install-pico
+PICOLV2_PATH=$PWD/plugins/build/picolv2/linux \
+  make -C plugins/tine-piano install
 ```
 
 ## 2.5 Convert the picolv2-firmware ELF to binary (optional)
@@ -78,18 +90,13 @@ rust-objcopy -O binary \
 ## 3. Create the flash image
 
 ```sh
+PICOLV2_PATH=plugins/build/picolv2/pico \
 picolv2-image create \
   --firmware-elf picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
   --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
-    plugins/tine-piano/build/pico/plugin.so \
-    plugins/tine-piano/tine-piano.lv2/manifest.ttl \
   --plugin https://joebutton.co.uk/lv2/string-synth \
-    plugins/string-synth/build/pico/plugin.so \
-    plugins/string-synth/string-synth.lv2/manifest.ttl \
   --plugin https://joebutton.co.uk/lv2/delay-poc \
-    plugins/delay/build/pico/plugin.so \
-    plugins/delay/delay.lv2/manifest.ttl \
   --output pico-image.bin
 ```
 
@@ -97,12 +104,13 @@ Plugin URIs must be unique. Each plugin's third argument is its `manifest.ttl`;
 the matching `rdfs:seeAlso` declaration locates the plugin TTL. Plugin metadata
 is parsed during image creation and stored as compact port records; invalid or
 unsupported port metadata fails the command. The bundle has a 512 KiB maximum
-size. `--ingen` accepts Ingen's serialized Turtle graph (`main.ttl`), reading `ingen:Block`, `lv2:prototype`, and
-`ingen:Arc`/`ingen:tail`/`ingen:head` statements. The packer converts this to
-the compact `PICO GRP` payload used on the Pico. Blocks are emitted in the
-Turtle order and must already be topologically ordered. The current host uses
-the first audio input/output on each block and renders the highest-index sink;
-control-port arcs and multi-port routing are not yet supported.
+size. `--ingen` accepts Ingen's serialized Turtle graph (`main.ttl`), reading
+`ingen:Block`, `lv2:prototype`, and `ingen:Arc`/`ingen:tail`/`ingen:head`
+statements. The packer converts this to the compact `PICO GRP` payload used on
+the Pico. Blocks are emitted in the Turtle order and must already be
+topologically ordered. The current host uses the first audio input/output on
+each block and renders the highest-index sink; control-port arcs and multi-port
+routing are not yet supported.
 
 `pico-image.bin` is a 2 MiB raw flash image. Firmware starts at `0x10000000`;
 the bundle starts at `0x10180000`.
@@ -134,6 +142,13 @@ probe-rs download \
 sleep 3 && \
 probe-rs reset --chip RP235x
 ```
+
+Plugin URIs must be unique and are resolved from `PICOLV2_PATH`; each bundle's
+`manifest.ttl` supplies the binary and the matching `rdfs:seeAlso` declaration
+locates the plugin TTL. Plugin metadata is parsed during image creation and
+stored as compact port records; invalid or unsupported port metadata fails the
+command. The bundle has a 512 KiB maximum size. `--ingen` accepts Ingen's
+serialized Turtle graph (`main.ttl`), reading
 
 ## Bonus: debugging with a debug probe and probe-rs
 

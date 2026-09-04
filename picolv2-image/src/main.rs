@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     }
     if arguments.first().map(String::as_str) != Some("create") {
         eprintln!(
-            "usage: picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY MANIFEST.ttl [...]"
+            "usage: PICOLV2_PATH=DIR[:DIR...] picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI [...]"
         );
         eprintln!("       picolv2-image uf2 -i IMAGE -o IMAGE.uf2");
         eprintln!("       picolv2-image info -i IMAGE");
@@ -57,16 +57,12 @@ fn main() -> ExitCode {
                 graph_path = arguments.get(index).cloned();
             }
             "--plugin" => {
-                if index + 3 >= arguments.len() {
-                    eprintln!("--plugin requires URI, binary path, and manifest path");
+                if index + 1 >= arguments.len() {
+                    eprintln!("--plugin requires a URI");
                     return ExitCode::from(2);
                 }
-                plugins.push((
-                    arguments[index + 1].clone(),
-                    arguments[index + 2].clone(),
-                    arguments[index + 3].clone(),
-                ));
-                index += 3;
+                plugins.push(arguments[index + 1].clone());
+                index += 1;
             }
             argument => {
                 eprintln!("unknown argument: {argument}");
@@ -102,6 +98,10 @@ fn main() -> ExitCode {
         eprintln!("bundle must contain at least one plugin");
         return ExitCode::from(2);
     }
+    let search_path = match env::var("PICOLV2_PATH") {
+        Ok(path) if !path.is_empty() => path,
+        _ => return fail("PICOLV2_PATH is not set"),
+    };
 
     let graph = match graph_path.ends_with(".ttl") {
         true => match ingen::compile(&graph_path) {
@@ -122,11 +122,15 @@ fn main() -> ExitCode {
     bundle.extend_from_slice(&(plugins.len() as u32).to_le_bytes());
     bundle.extend_from_slice(&(graph.len() as u32).to_le_bytes());
     let mut uris = Vec::new();
-    for (uri, binary_path, manifest_path) in plugins {
+    for uri in plugins {
         if uris.iter().any(|existing| existing == &uri) {
             return fail(&format!("duplicate plugin URI: {uri}"));
         }
         uris.push(uri.clone());
+        let (binary_path, manifest_path) = match lv2::discover(&uri, &search_path) {
+            Ok(paths) => paths,
+            Err(error) => return fail(&error),
+        };
         let binary = match fs::read(&binary_path) {
             Ok(bytes) => bytes,
             Err(error) => return fail(&format!("cannot read {binary_path}: {error}")),

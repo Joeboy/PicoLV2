@@ -1,7 +1,7 @@
 STRIP ?= 1
 PLUGINS := amp delay monosynth oxynth string-synth tine-piano
 
-.PHONY: all pico linux test clean
+.PHONY: all pico linux bundle bundle-pico bundle-linux test clean
 
 all: pico linux
 
@@ -13,6 +13,20 @@ pico:
 linux:
 	@for plugin in $(PLUGINS); do \
 		$(MAKE) -C $$plugin linux STRIP=$(STRIP) || exit 1; \
+	done
+
+PICOLV2_BUNDLE_ROOT ?= $(CURDIR)/build/picolv2
+
+bundle: bundle-pico bundle-linux
+
+bundle-pico:
+	@for plugin in $(PLUGINS); do \
+		$(MAKE) -C $$plugin bundle TARGET=pico STRIP=$(STRIP) PICOLV2_PATH=$(PICOLV2_BUNDLE_ROOT)/pico || exit 1; \
+	done
+
+bundle-linux:
+	@for plugin in $(PLUGINS); do \
+		$(MAKE) -C $$plugin bundle TARGET=linux STRIP=$(STRIP) PICOLV2_PATH=$(PICOLV2_BUNDLE_ROOT)/linux || exit 1; \
 	done
 
 test:

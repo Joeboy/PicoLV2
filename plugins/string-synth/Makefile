@@ -26,9 +26,11 @@ endif
 
 BUILD_DIR := build/$(TARGET)
 OUT := $(BUILD_DIR)/plugin.so
-BUNDLE_DIR := string-synth.lv2
+BUNDLE_SOURCE := string-synth.lv2
+PICOLV2_PATH ?= build/picolv2/$(TARGET)
+BUNDLE_DIR := $(PICOLV2_PATH)/string-synth.lv2
 
-.PHONY: all pico linux bundle test clean info
+.PHONY: all pico linux bundle install install-pico test clean info
 
 all: $(OUT)
 
@@ -39,8 +41,16 @@ linux:
 	$(MAKE) TARGET=linux STRIP=$(STRIP)
 
 bundle:
-	$(MAKE) TARGET=linux STRIP=$(STRIP)
-	cp build/linux/plugin.so $(BUNDLE_DIR)/plugin.so
+	$(MAKE) TARGET=$(TARGET) STRIP=$(STRIP)
+	mkdir -p $(BUNDLE_DIR)
+	cp $(BUNDLE_SOURCE)/*.ttl $(BUNDLE_DIR)/
+	cp $(OUT) $(BUNDLE_DIR)/plugin.so
+
+install:
+	$(MAKE) TARGET=linux STRIP=$(STRIP) bundle
+
+install-pico:
+	$(MAKE) TARGET=pico STRIP=$(STRIP) bundle
 
 SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c
 

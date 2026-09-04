@@ -4,7 +4,9 @@ STRIP ?= 1
 BUILD_DIR := build/$(TARGET)
 SRC := src/plugin.c
 OUT := $(BUILD_DIR)/plugin.so
-BUNDLE_DIR := delay.lv2
+BUNDLE_SOURCE := delay.lv2
+PICOLV2_PATH ?= build/picolv2/$(TARGET)
+BUNDLE_DIR := $(PICOLV2_PATH)/delay.lv2
 
 ifeq ($(TARGET),pico)
 CC := arm-none-eabi-gcc
@@ -27,7 +29,7 @@ ifneq ($(STRIP),0)
 LDFLAGS += -Wl,--strip-debug
 endif
 
-.PHONY: all pico linux bundle clean info
+.PHONY: all pico linux bundle install install-pico clean info
 
 all: $(OUT)
 
@@ -38,8 +40,16 @@ linux:
 	$(MAKE) TARGET=linux STRIP=$(STRIP)
 
 bundle:
-	$(MAKE) TARGET=linux STRIP=$(STRIP)
-	cp build/linux/plugin.so $(BUNDLE_DIR)/plugin.so
+	$(MAKE) TARGET=$(TARGET) STRIP=$(STRIP)
+	mkdir -p $(BUNDLE_DIR)
+	cp $(BUNDLE_SOURCE)/*.ttl $(BUNDLE_DIR)/
+	cp $(OUT) $(BUNDLE_DIR)/plugin.so
+
+install:
+	$(MAKE) TARGET=linux STRIP=$(STRIP) bundle
+
+install-pico:
+	$(MAKE) TARGET=pico STRIP=$(STRIP) bundle
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
