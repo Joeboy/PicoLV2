@@ -1,7 +1,7 @@
 use std::{env, fs, io::BufReader, process::ExitCode};
 
 use goblin::elf::{program_header::PT_LOAD, Elf};
-use lv2_bundle_format::{Bundle, Graph, FLASH_ADDRESS, MAGIC, MAX_SIZE, VERSION};
+use picolv2_image_format::{Bundle, Graph, FLASH_ADDRESS, MAGIC, MAX_SIZE, VERSION};
 use rio_api::{
     model::{Subject, Term},
     parser::TriplesParser,
@@ -273,8 +273,8 @@ fn ingen_graph(path: &str) -> Result<Vec<u8>, String> {
     }
 
     let mut result = Vec::new();
-    result.extend_from_slice(lv2_bundle_format::GRAPH_MAGIC);
-    result.extend_from_slice(&lv2_bundle_format::GRAPH_VERSION.to_le_bytes());
+    result.extend_from_slice(picolv2_image_format::GRAPH_MAGIC);
+    result.extend_from_slice(&picolv2_image_format::GRAPH_VERSION.to_le_bytes());
     result.extend_from_slice(&(nodes.len() as u16).to_le_bytes());
     result.extend_from_slice(&(edges.len() as u16).to_le_bytes());
     for (_, prototype) in &nodes {

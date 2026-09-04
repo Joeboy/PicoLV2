@@ -1,5 +1,5 @@
 [package]
-name = "lv2-bundle-format"
+name = "picolv2-image-format"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"

@@ -1,6 +1,6 @@
-# lv2-bundle-format
+# picolv2-image-format
 
-`lv2-bundle-format` defines the flash-resident PicoLV2 plugin bundle format. It
+`picolv2-image-format` defines the flash-resident PicoLV2 plugin bundle format. It
 is a `#![no_std]` library so the same reader can be used by the Pico firmware
 and by host-side tools.
 

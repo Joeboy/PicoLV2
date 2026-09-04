@@ -29,7 +29,7 @@ elf_loader = { version = "0.17.0", default-features = false }
 embedded-alloc = { version = "0.7.0", features = ["tlsf"] }
 heapless = "0.9"
 static_cell = "2.1"
-lv2-bundle-format = { path = "../tools/lv2-bundle-format" }
+picolv2-image-format = { path = "../tools/picolv2-image-format" }
 
 [profile.release]
 # Enable generation of debug symbols even on release builds

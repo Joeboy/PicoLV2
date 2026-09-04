@@ -3,7 +3,7 @@ use core::ffi::{CStr, c_char, c_void};
 use defmt::info;
 use elf_loader::{Loader, Relocator, input::ElfBinary};
 use heapless::{Vec, spsc::{Consumer, Producer}};
-use lv2_bundle_format::{Bundle, FLASH_ADDRESS, MAX_SIZE};
+use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE};
 
 use crate::audio_buffer::{
     AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
