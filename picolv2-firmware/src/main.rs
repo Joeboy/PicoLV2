@@ -138,3 +138,25 @@ pub fn log_heap(stage: &'static str) {
         HEAP.failed_request.load(Ordering::Relaxed),
     );
 }
+
+/// Backs plugin `malloc`/`calloc`/`realloc`/`free` (see `plugins/pico-alloc.c`)
+/// with the same tracked heap used for loading plugin ELF images, resolved at
+/// plugin-relocation time via a synthetic module (see `plugin_host.rs`).
+#[unsafe(no_mangle)]
+pub extern "C" fn picolv2_alloc(size: usize, align: usize) -> *mut u8 {
+    let Ok(layout) = Layout::from_size_align(size, align.max(1)) else {
+        return core::ptr::null_mut();
+    };
+    unsafe { HEAP.alloc(layout) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn picolv2_dealloc(pointer: *mut u8, size: usize, align: usize) {
+    if pointer.is_null() {
+        return;
+    }
+    let Ok(layout) = Layout::from_size_align(size, align.max(1)) else {
+        return;
+    };
+    unsafe { HEAP.dealloc(pointer, layout) };
+}

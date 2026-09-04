@@ -10,7 +10,9 @@ READELF := arm-none-eabi-readelf
 # Matches the Pico 2 (RP2350), Cortex-M33 with hardware FP, thumbv8m.main.
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
-LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
+# malloc/calloc/free/realloc resolve picolv2_alloc/picolv2_dealloc against
+# picolv2-firmware's tracked heap at load time, so they stay undefined here.
+LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 # -lgcc: the plugin does double-precision math (the LV2 `instantiate` ABI
 # passes `sample_rate` as a double), but this FPU is single-precision only
 # (fpv5-sp-d16), so double ops need libgcc's soft-float routines. Verified
@@ -18,12 +20,14 @@ LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,-z,max-page-s
 # after the object file on the link line so `ld` sees the undefined symbols
 # it needs to satisfy before searching the archive.
 LDLIBS := -lgcc -lc -lnosys
+EXTRA_SRC := ../pico-alloc.c
 else ifeq ($(TARGET),linux)
 CC := gcc
 READELF := readelf
 CFLAGS := -fPIC -Wall -Wextra -O2
 LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined
 LDLIBS :=
+EXTRA_SRC :=
 else
 $(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
 endif
@@ -77,8 +81,8 @@ test: bundle $(SMOKE_TEST)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(OUT): $(SRC) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(OUT) $(SRC) $(LDLIBS)
+$(OUT): $(SRC) $(EXTRA_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(OUT) $(SRC) $(EXTRA_SRC) $(LDLIBS)
 
 info: $(OUT)
 	$(READELF) -h $(OUT)

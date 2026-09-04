@@ -1,7 +1,11 @@
 use core::ffi::{CStr, c_char, c_void};
 
 use defmt::info;
-use elf_loader::{Loader, Relocator, input::ElfBinary};
+use elf_loader::{
+    Loader, Relocator,
+    image::{SyntheticModule, SyntheticSymbol},
+    input::ElfBinary,
+};
 use heapless::{Vec, spsc::{Consumer, Producer}};
 use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE, PluginMetadata, PortKind};
 
@@ -64,8 +68,18 @@ impl PluginBinary {
             .load_dylib(ElfBinary::new(name, elf_bytes))
             .expect("failed to load lv2 plugin binary");
         log_heap("after elf load");
+        // `plugins/pico-alloc.c` leaves these two symbols undefined so plugin
+        // heap allocations are served by our tracked heap
+        let host = SyntheticModule::new(
+            "picolv2-host",
+            [
+                SyntheticSymbol::function("picolv2_alloc", crate::picolv2_alloc as *const ()),
+                SyntheticSymbol::function("picolv2_dealloc", crate::picolv2_dealloc as *const ()),
+            ],
+        );
         let lib = Relocator::new()
             .run(raw)
+            .modules([host])
             .relocate()
             .expect("failed to relocate lv2 plugin binary");
         log_heap("after relocation");

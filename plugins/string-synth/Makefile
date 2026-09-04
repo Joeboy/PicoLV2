@@ -7,8 +7,12 @@ RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libstring_synth.a
 LINKER := arm-none-eabi-gcc
 READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
-LDFLAGS := $(MCPU) -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
+# malloc/calloc/free/realloc (in ../pico-alloc.c) resolve picolv2_alloc/
+# picolv2_dealloc against picolv2-firmware's tracked heap at load time, so
+# they stay undefined here.
+LDFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,--gc-sections -Wl,-z,noexecstack -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 LDLIBS := -lgcc -lc -lnosys
+EXTRA_SRC := ../pico-alloc.c
 else ifeq ($(TARGET),linux)
 CARGO_TARGET := x86_64-unknown-linux-gnu
 RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libstring_synth.a
@@ -16,6 +20,7 @@ LINKER := gcc
 READELF := readelf
 LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack
 LDLIBS := -ldl -lpthread -lm
+EXTRA_SRC :=
 else
 $(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
 endif
@@ -64,8 +69,8 @@ $(BUILD_DIR):
 $(RUST_ARCHIVE): Cargo.toml rust-toolchain.toml src/lib.rs src/abi.rs src/synth.rs
 	cargo build --release --target $(CARGO_TARGET)
 
-$(OUT): $(RUST_ARCHIVE) | $(BUILD_DIR)
-	$(LINKER) $(LDFLAGS) -Wl,-u,lv2_descriptor -o $(OUT) $(RUST_ARCHIVE) $(LDLIBS)
+$(OUT): $(RUST_ARCHIVE) $(EXTRA_SRC) | $(BUILD_DIR)
+	$(LINKER) $(LDFLAGS) -Wl,-u,lv2_descriptor -o $(OUT) $(RUST_ARCHIVE) $(EXTRA_SRC) $(LDLIBS)
 
 info: $(OUT)
 	$(READELF) -h $(OUT)
