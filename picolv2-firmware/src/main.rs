@@ -7,7 +7,6 @@ mod i2s_ping_pong;
 mod lv2;
 mod midi;
 mod plugin_host;
-mod plugin_metadata;
 mod usb_midi_in;
 
 use audio_buffer::{AUDIO_BLOCK_COUNT, FREE_AUDIO_BLOCKS, READY_AUDIO_BLOCKS};

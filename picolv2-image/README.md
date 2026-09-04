@@ -93,9 +93,10 @@ picolv2-image create \
   --output pico-image.bin
 ```
 
-Plugin URIs must be unique. Binary and metadata files are stored unchanged. The
-bundle has a 512 KiB maximum size. `--ingen` accepts Ingen's serialized Turtle
-graph (`main.ttl`), reading `ingen:Block`, `lv2:prototype`, and
+Plugin URIs must be unique. Plugin TTL metadata is parsed during image creation
+and stored as compact port records; invalid or unsupported port metadata fails
+the command. The bundle has a 512 KiB maximum size. `--ingen` accepts Ingen's
+serialized Turtle graph (`main.ttl`), reading `ingen:Block`, `lv2:prototype`, and
 `ingen:Arc`/`ingen:tail`/`ingen:head` statements. The packer converts this to
 the compact `PICO GRP` payload used on the Pico. Blocks are emitted in the
 Turtle order and must already be topologically ordered. The current host uses

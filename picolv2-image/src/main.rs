@@ -1,9 +1,12 @@
 use std::{env, fs, io::BufReader, process::ExitCode};
 
 use goblin::elf::{Elf, program_header::PT_LOAD};
-use picolv2_image_format::{Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, VERSION};
+use picolv2_image_format::{
+    Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, METADATA_MAGIC, METADATA_VERSION, PortKind,
+    VERSION,
+};
 use rio_api::{
-    model::{Subject, Term},
+    model::{Literal, Subject, Term},
     parser::TriplesParser,
 };
 use rio_turtle::TurtleParser;
@@ -132,9 +135,9 @@ fn main() -> ExitCode {
             Ok(bytes) => bytes,
             Err(error) => return fail(&format!("cannot read {binary_path}: {error}")),
         };
-        let metadata = match fs::read(&metadata_path) {
+        let metadata = match compile_metadata(&metadata_path) {
             Ok(bytes) => bytes,
-            Err(error) => return fail(&format!("cannot read {metadata_path}: {error}")),
+            Err(error) => return fail(&error),
         };
         if uri.len() > u16::MAX as usize {
             return fail("plugin URI is too long");
@@ -221,6 +224,14 @@ const INGEN_ARC: &str = "http://drobilla.net/ns/ingen#Arc";
 const INGEN_TAIL: &str = "http://drobilla.net/ns/ingen#tail";
 const INGEN_HEAD: &str = "http://drobilla.net/ns/ingen#head";
 const LV2_PROTOTYPE: &str = "http://lv2plug.in/ns/lv2core#prototype";
+const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
+const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
+const LV2_DEFAULT: &str = "http://lv2plug.in/ns/lv2core#default";
+const LV2_INPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#InputPort";
+const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
+const LV2_AUDIO_PORT: &str = "http://lv2plug.in/ns/lv2core#AudioPort";
+const LV2_CONTROL_PORT: &str = "http://lv2plug.in/ns/lv2core#ControlPort";
+const ATOM_PORT: &str = "http://lv2plug.in/ns/ext/atom#AtomPort";
 
 fn ingen_graph(path: &str) -> Result<Vec<u8>, String> {
     let file = fs::File::open(path).map_err(|error| format!("cannot read {path}: {error}"))?;
@@ -293,6 +304,89 @@ fn ingen_graph(path: &str) -> Result<Vec<u8>, String> {
     Ok(result)
 }
 
+fn compile_metadata(path: &str) -> Result<Vec<u8>, String> {
+    let file = fs::File::open(path).map_err(|error| format!("cannot read {path}: {error}"))?;
+    let base = oxiri::Iri::parse(format!("file:{path}"))
+        .map_err(|_| format!("invalid metadata base URI: {path}"))?;
+    let mut triples = Vec::new();
+    TurtleParser::new(BufReader::new(file), Some(base))
+        .parse_all(&mut |triple| {
+            triples.push(OwnedTriple {
+                subject: subject_key(triple.subject),
+                predicate: triple.predicate.iri.to_string(),
+                object: term_key(triple.object),
+            });
+            Ok::<(), rio_turtle::TurtleError>(())
+        })
+        .map_err(|error| format!("invalid plugin Turtle {path}: {error}"))?;
+
+    let mut port_subjects: Vec<_> = triples
+        .iter()
+        .filter(|triple| triple.predicate == LV2_PORT)
+        .map(|triple| triple.object.clone())
+        .collect();
+    port_subjects.sort();
+    port_subjects.dedup();
+    if port_subjects.is_empty() || port_subjects.len() > u16::MAX as usize {
+        return Err(format!("plugin metadata {path} has an invalid port count"));
+    }
+
+    let mut ports = Vec::new();
+    for subject in port_subjects {
+        let types: Vec<_> = triples
+            .iter()
+            .filter(|triple| triple.subject == subject && triple.predicate == RDF_TYPE)
+            .map(|triple| triple.object.as_str())
+            .collect();
+        let kind = if types.contains(&ATOM_PORT) && types.contains(&LV2_INPUT_PORT) {
+            PortKind::AtomInput
+        } else if types.contains(&LV2_AUDIO_PORT) && types.contains(&LV2_INPUT_PORT) {
+            PortKind::AudioInput
+        } else if types.contains(&LV2_AUDIO_PORT) && types.contains(&LV2_OUTPUT_PORT) {
+            PortKind::AudioOutput
+        } else if types.contains(&LV2_CONTROL_PORT) && types.contains(&LV2_INPUT_PORT) {
+            PortKind::ControlInput
+        } else {
+            return Err(format!(
+                "plugin metadata {path} has unsupported port {subject}"
+            ));
+        };
+        let index = object_for(&triples, &subject, LV2_INDEX).and_then(|value| {
+            value
+                .parse::<u32>()
+                .map_err(|_| format!("plugin metadata {path} has invalid port index {value}"))
+        })?;
+        let default = triples
+            .iter()
+            .find(|triple| triple.subject == subject && triple.predicate == LV2_DEFAULT)
+            .map(|triple| {
+                triple.object.parse::<f32>().map_err(|_| {
+                    format!(
+                        "plugin metadata {path} has invalid default {}",
+                        triple.object
+                    )
+                })
+            })
+            .transpose()?;
+        ports.push((index, kind, default));
+    }
+    ports.sort_by_key(|(index, _, _)| *index);
+
+    let mut result = Vec::with_capacity(16 + ports.len() * 12);
+    result.extend_from_slice(METADATA_MAGIC);
+    result.extend_from_slice(&METADATA_VERSION.to_le_bytes());
+    result.extend_from_slice(&(ports.len() as u16).to_le_bytes());
+    result.extend_from_slice(&[0, 0]);
+    for (index, kind, default) in ports {
+        result.push(kind as u8);
+        result.push(default.is_some() as u8);
+        result.extend_from_slice(&[0, 0]);
+        result.extend_from_slice(&index.to_le_bytes());
+        result.extend_from_slice(&default.unwrap_or(0.0).to_le_bytes());
+    }
+    Ok(result)
+}
+
 struct OwnedTriple {
     subject: String,
     predicate: String,
@@ -311,7 +405,11 @@ fn term_key(term: Term<'_>) -> String {
     match term {
         Term::NamedNode(node) => node.iri.to_string(),
         Term::BlankNode(node) => format!("_:{}", node.id),
-        Term::Literal(literal) => literal.to_string(),
+        Term::Literal(
+            Literal::Simple { value }
+            | Literal::LanguageTaggedString { value, .. }
+            | Literal::Typed { value, .. },
+        ) => value.to_string(),
         Term::Triple(_) => String::new(),
     }
 }

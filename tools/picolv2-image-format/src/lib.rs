@@ -6,8 +6,12 @@ pub const FLASH_ADDRESS: usize = 0x1018_0000;
 pub const MAX_SIZE: usize = 512 * 1024;
 pub const GRAPH_MAGIC: &[u8; 8] = b"PICO GRP";
 pub const GRAPH_VERSION: u32 = 1;
+pub const METADATA_MAGIC: &[u8; 8] = b"PICO MET";
+pub const METADATA_VERSION: u32 = 1;
 const HEADER_SIZE: usize = 20;
 const RECORD_SIZE: usize = 12;
+const METADATA_HEADER_SIZE: usize = 16;
+const METADATA_PORT_SIZE: usize = 12;
 
 #[cfg(test)]
 extern crate std;
@@ -50,6 +54,26 @@ pub struct Edge {
     pub source_port: u8,
     pub destination_node: u16,
     pub destination_port: u8,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum PortKind {
+    AudioInput = 1,
+    AudioOutput = 2,
+    ControlInput = 3,
+    AtomInput = 4,
+}
+
+#[derive(Clone, Copy)]
+pub struct PortMetadata {
+    pub index: u32,
+    pub kind: PortKind,
+    pub default: Option<f32>,
+}
+
+pub struct PluginMetadata<'a> {
+    bytes: &'a [u8],
+    port_count: u16,
 }
 
 impl<'a> Bundle<'a> {
@@ -225,6 +249,58 @@ impl<'a> Graph<'a> {
     }
 }
 
+impl<'a> PluginMetadata<'a> {
+    pub fn parse(bytes: &'a [u8]) -> Result<Self, ()> {
+        if bytes.len() < METADATA_HEADER_SIZE
+            || &bytes[..8] != METADATA_MAGIC
+            || read_u32(bytes, 8) != Some(METADATA_VERSION)
+        {
+            return Err(());
+        }
+        let port_count = read_u16(bytes, 12).ok_or(())?;
+        let length = METADATA_HEADER_SIZE
+            .checked_add(port_count as usize * METADATA_PORT_SIZE)
+            .ok_or(())?;
+        if bytes.len() != length {
+            return Err(());
+        }
+        Ok(Self { bytes, port_count })
+    }
+
+    pub fn port(&self, kind: PortKind, occurrence: usize) -> Option<PortMetadata> {
+        let mut found = 0;
+        for index in 0..self.port_count as usize {
+            let offset = METADATA_HEADER_SIZE + index * METADATA_PORT_SIZE;
+            let port_kind = match *self.bytes.get(offset)? {
+                1 => PortKind::AudioInput,
+                2 => PortKind::AudioOutput,
+                3 => PortKind::ControlInput,
+                4 => PortKind::AtomInput,
+                _ => return None,
+            };
+            if port_kind != kind {
+                continue;
+            }
+            if found == occurrence {
+                let default = match *self.bytes.get(offset + 1)? {
+                    0 => None,
+                    1 => Some(f32::from_le_bytes(
+                        self.bytes.get(offset + 8..offset + 12)?.try_into().ok()?,
+                    )),
+                    _ => return None,
+                };
+                return Some(PortMetadata {
+                    index: read_u32(self.bytes, offset + 4)?,
+                    kind: port_kind,
+                    default,
+                });
+            }
+            found += 1;
+        }
+        None
+    }
+}
+
 fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
     Some(u16::from_le_bytes([
         *bytes.get(offset)?,
@@ -313,5 +389,21 @@ mod tests {
         assert_eq!(edge.destination_node, 1);
         assert_eq!(edge.source_port, 0);
         assert_eq!(edge.destination_port, 0);
+    }
+
+    #[test]
+    fn parses_plugin_metadata() {
+        let mut bytes = Vec::from(*METADATA_MAGIC);
+        bytes.extend_from_slice(&METADATA_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&[PortKind::ControlInput as u8, 1, 0, 0]);
+        bytes.extend_from_slice(&3u32.to_le_bytes());
+        bytes.extend_from_slice(&0.5f32.to_le_bytes());
+
+        let metadata = PluginMetadata::parse(&bytes).unwrap();
+        let port = metadata.port(PortKind::ControlInput, 0).unwrap();
+        assert_eq!(port.index, 3);
+        assert_eq!(port.default, Some(0.5));
     }
 }

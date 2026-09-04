@@ -3,7 +3,7 @@ use core::ffi::{CStr, c_char, c_void};
 use defmt::info;
 use elf_loader::{Loader, Relocator, input::ElfBinary};
 use heapless::{Vec, spsc::{Consumer, Producer}};
-use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE};
+use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE, PluginMetadata, PortKind};
 
 use crate::audio_buffer::{
     AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
@@ -15,7 +15,6 @@ use crate::lv2::{
     MIDI_EVENT_URID, URID_MAP_URI,
 };
 use crate::midi::{Lv2MidiSequence, MidiEvent};
-use crate::plugin_metadata::{PluginMetadata, PortKind};
 
 const MAX_NODES: usize = 8;
 const MAX_CONTROLS: usize = 8;
