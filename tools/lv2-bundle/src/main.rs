@@ -1,5 +1,6 @@
 use std::{env, fs, io::BufReader, process::ExitCode};
 
+use goblin::elf::{Elf, program_header::PT_LOAD};
 use lv2_bundle_format::{Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, VERSION};
 use rio_api::{
     model::{Subject, Term},
@@ -25,7 +26,7 @@ fn main() -> ExitCode {
     }
     if arguments.first().map(String::as_str) != Some("pack") {
         eprintln!(
-            "usage: lv2-bundle pack -o IMAGE -f FIRMWARE --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
+            "usage: lv2-bundle pack -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
         );
         eprintln!("       lv2-bundle uf2 -i IMAGE -o IMAGE.uf2");
         eprintln!("       lv2-bundle info -i IMAGE");
@@ -33,7 +34,8 @@ fn main() -> ExitCode {
     }
 
     let mut output = None;
-    let mut firmware_path = None;
+    let mut firmware_elf_path = None;
+    let mut firmware_bin_path = None;
     let mut graph_path = None;
     let mut plugins = Vec::new();
     let mut index = 1;
@@ -43,9 +45,13 @@ fn main() -> ExitCode {
                 index += 1;
                 output = arguments.get(index).cloned();
             }
-            "-f" | "--firmware" => {
+            "--firmware-elf" => {
                 index += 1;
-                firmware_path = arguments.get(index).cloned();
+                firmware_elf_path = arguments.get(index).cloned();
+            }
+            "--firmware-bin" => {
+                index += 1;
+                firmware_bin_path = arguments.get(index).cloned();
             }
             "--graph" | "--ingen" => {
                 index += 1;
@@ -71,11 +77,27 @@ fn main() -> ExitCode {
         index += 1;
     }
 
-    let (Some(output), Some(firmware_path), Some(graph_path)) =
-        (output, firmware_path, graph_path)
-    else {
-        eprintln!("missing output, firmware, or graph path");
+    let (Some(output), Some(graph_path)) = (output, graph_path) else {
+        eprintln!("missing output or graph path");
         return ExitCode::from(2);
+    };
+    let firmware = match (firmware_elf_path, firmware_bin_path) {
+        (Some(_), Some(_)) => {
+            eprintln!("--firmware-elf and --firmware-bin cannot be used together");
+            return ExitCode::from(2);
+        }
+        (Some(path), None) => match firmware_from_elf(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fail(&error),
+        },
+        (None, Some(path)) => match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => return fail(&format!("cannot read {path}: {error}")),
+        },
+        (None, None) => {
+            eprintln!("missing --firmware-elf or --firmware-bin");
+            return ExitCode::from(2);
+        }
     };
     if plugins.is_empty() || plugins.len() > u32::MAX as usize {
         eprintln!("bundle must contain at least one plugin");
@@ -133,10 +155,6 @@ fn main() -> ExitCode {
         ));
     }
 
-    let firmware = match fs::read(&firmware_path) {
-        Ok(bytes) => bytes,
-        Err(error) => return fail(&format!("cannot read {firmware_path}: {error}")),
-    };
     let bundle_offset = FLASH_ADDRESS - 0x1000_0000;
     if firmware.len() > bundle_offset {
         return fail("firmware overlaps the reserved bundle region");
@@ -149,6 +167,47 @@ fn main() -> ExitCode {
     }
     println!("wrote {output}");
     ExitCode::SUCCESS
+}
+
+fn firmware_from_elf(path: &str) -> Result<Vec<u8>, String> {
+    const FLASH_BASE: u64 = 0x1000_0000;
+
+    let elf_bytes = fs::read(path).map_err(|error| format!("cannot read {path}: {error}"))?;
+    let elf = Elf::parse(&elf_bytes).map_err(|error| format!("invalid firmware ELF: {error}"))?;
+    let mut firmware = Vec::new();
+    for segment in &elf.program_headers {
+        if segment.p_type != PT_LOAD || segment.p_filesz == 0 {
+            continue;
+        }
+        let start = segment
+            .p_paddr
+            .checked_sub(FLASH_BASE)
+            .ok_or_else(|| "firmware ELF contains a segment below flash".to_string())?;
+        let end = start
+            .checked_add(segment.p_filesz)
+            .ok_or_else(|| "firmware ELF segment address overflows".to_string())?;
+        let source_start = usize::try_from(segment.p_offset)
+            .map_err(|_| "firmware ELF segment offset is too large".to_string())?;
+        let source_end = source_start
+            .checked_add(
+                usize::try_from(segment.p_filesz)
+                    .map_err(|_| "firmware ELF segment is too large".to_string())?,
+            )
+            .ok_or_else(|| "firmware ELF segment size overflows".to_string())?;
+        let data = elf_bytes
+            .get(source_start..source_end)
+            .ok_or_else(|| "firmware ELF segment is outside the file".to_string())?;
+        let end = usize::try_from(end)
+            .map_err(|_| "firmware ELF segment address is too large".to_string())?;
+        let start = usize::try_from(start)
+            .map_err(|_| "firmware ELF segment address is too large".to_string())?;
+        firmware.resize(end, 0);
+        firmware[start..end].copy_from_slice(data);
+    }
+    if firmware.is_empty() {
+        return Err("firmware ELF contains no loadable data".into());
+    }
+    Ok(firmware)
 }
 
 fn fail(message: &str) -> ExitCode {
@@ -383,7 +442,11 @@ fn info(arguments: &[String]) -> ExitCode {
         .map(|index| index + 1)
         .unwrap_or(0);
     println!("image: {input} ({} bytes)", image.len());
-    println!("firmware: {firmware_size} bytes (0x{:08x}..0x{:08x})", 0x1000_0000, 0x1000_0000 + firmware_size);
+    println!(
+        "firmware: {firmware_size} bytes (0x{:08x}..0x{:08x})",
+        0x1000_0000,
+        0x1000_0000 + firmware_size
+    );
     println!(
         "bundle: {} bytes (0x{FLASH_ADDRESS:08x}..), format version {VERSION}",
         bundle_bytes.len()
@@ -406,15 +469,15 @@ fn info(arguments: &[String]) -> ExitCode {
         Ok(graph) => graph,
         Err(error) => return fail(&format!("invalid graph: {error:?}")),
     };
-    println!("graph: {} nodes, {} edges", graph.node_count, graph.edge_count);
+    println!(
+        "graph: {} nodes, {} edges",
+        graph.node_count, graph.edge_count
+    );
     for node_index in 0..graph.node_count {
         let Ok(node) = graph.node(node_index) else {
             return fail(&format!("invalid graph node {node_index}"));
         };
-        println!(
-            "  node[{node_index}] {}",
-            String::from_utf8_lossy(node.uri)
-        );
+        println!("  node[{node_index}] {}", String::from_utf8_lossy(node.uri));
     }
     for edge_index in 0..graph.edge_count {
         let Ok(edge) = graph.edge(edge_index) else {

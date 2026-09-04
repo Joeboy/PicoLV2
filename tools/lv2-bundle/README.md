@@ -15,9 +15,8 @@ To create a plugin chain and flash it to the Pico, the complete process is:
 1. Create your plugin chain as an Ingen graph
 2. Acquire or build copies of: the Pico firmware (`pico-loader`); your desired
    plugins (built for PicoLv2); and the `lv2-bundle` utility.
-3. Convert the Pico firmware ELF to a raw binary.
-4. Pack the plugins and combine them with the firmware into a flash image.
-5. Flash the image onto the Pico using either the USB bootloader or a debug
+3. Pack the plugins and combine them with the firmware ELF into a flash image.
+4. Flash the image onto the Pico using either the USB bootloader or a debug
    probe.
 
 ## 1. Create your plugin chain as an Ingen graph file
@@ -55,7 +54,7 @@ cargo build --release
 cd ../..
 ```
 
-the rest of this README assumes lv2-bundle is on your PATH
+the rest of this README assumes `lv2-bundle` is on your PATH
 
 #### Build pico-loader
 
@@ -65,13 +64,10 @@ cargo build --release
 cd ..
 ```
 
-## 3. Convert the Pico firmware ELF to a raw binary
+## 2.5 Convert the pico-loader ELF to binary (optional)
 
-The idea is that eventually I'll just ship the binary, but documenting this here
-anyway.
-
-To convert the built pico-loader ELF to a raw binary that can be flashed onto
-the Pico:
+You probably don't need to do this as `lv2-bundle` can now convert the raw ELF
+file itself. In case you want to for some reason:
 
 ```sh
 rust-objcopy -O binary \
@@ -79,15 +75,11 @@ rust-objcopy -O binary \
   pico-loader.bin
 ```
 
-## 4. Pack the plugins and combine with the firmware
-
-Pass one `--plugin` option for each plugin. Each option contains the plugin's
-LV2 URI, Pico binary, and TTL metadata file:
+## 3. Pack the plugins and combine them with the firmware
 
 ```sh
 lv2-bundle pack \
-  --output pico-image.bin \
-  --firmware pico-loader.bin \
+  --firmware-elf pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader \
   --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
     plugins/tine-piano/build/pico/plugin.so \
@@ -97,7 +89,8 @@ lv2-bundle pack \
     plugins/string-synth/string-synth.lv2/string-synth.ttl \
   --plugin https://joebutton.co.uk/lv2/delay-poc \
     plugins/delay/build/pico/plugin.so \
-    plugins/delay/delay.lv2/delay.ttl
+    plugins/delay/delay.lv2/delay.ttl \
+  --output pico-image.bin
 ```
 
 Plugin URIs must be unique. Binary and metadata files are stored unchanged. The
@@ -112,7 +105,7 @@ control-port arcs and multi-port routing are not yet supported.
 `pico-image.bin` is a 2 MiB raw flash image. Firmware starts at `0x10000000`;
 the bundle starts at `0x10180000`.
 
-## 5. Flash the Pico
+## 4. Flash the Pico
 
 ### Option 1 (AS YET UNTESTED BY ME!): Flash via USB / UF2
 
@@ -136,6 +129,7 @@ probe-rs download \
   --base-address 0x10000000 \
   --verify \
   pico-image.bin && \
+sleep 1 && \
 probe-rs reset --chip RP235x
 ```
 
