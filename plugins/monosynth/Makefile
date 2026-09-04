@@ -10,7 +10,7 @@ READELF := arm-none-eabi-readelf
 # Matches the Pico 2 (RP2350), Cortex-M33 with hardware FP, thumbv8m.main.
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
-LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--no-warnings
+LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 # -lgcc: the plugin does double-precision math (the LV2 `instantiate` ABI
 # passes `sample_rate` as a double), but this FPU is single-precision only
 # (fpv5-sp-d16), so double ops need libgcc's soft-float routines. Verified

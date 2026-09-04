@@ -7,7 +7,7 @@ RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libtine_piano.a
 LINKER := arm-none-eabi-gcc
 READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
-LDFLAGS := $(MCPU) -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack -Wl,--no-warnings
+LDFLAGS := $(MCPU) -shared -nostdlib -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 LDLIBS := -lgcc -lc -lnosys
 else ifeq ($(TARGET),linux)
 CARGO_TARGET := x86_64-unknown-linux-gnu
