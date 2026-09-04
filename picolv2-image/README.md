@@ -94,26 +94,11 @@ PICOLV2_PATH=plugins/build/picolv2/pico \
 picolv2-image create \
   --firmware-elf picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
   --ingen graph/main.ttl \
-  --plugin https://joebutton.co.uk/lv2/tine-piano \
-  --plugin https://joebutton.co.uk/lv2/string-synth \
-  --plugin https://joebutton.co.uk/lv2/delay-poc \
   --output pico-image.bin
 ```
 
-Plugin URIs must be unique. Each plugin's third argument is its `manifest.ttl`;
-the matching `rdfs:seeAlso` declaration locates the plugin TTL. Plugin metadata
-is parsed during image creation and stored as compact port records; invalid or
-unsupported port metadata fails the command. The bundle has a 512 KiB maximum
-size. `--ingen` accepts Ingen's serialized Turtle graph (`main.ttl`), reading
-`ingen:Block`, `lv2:prototype`, and `ingen:Arc`/`ingen:tail`/`ingen:head`
-statements. The packer converts this to the compact `PICO GRP` payload used on
-the Pico. Blocks are emitted in the Turtle order and must already be
-topologically ordered. The current host uses the first audio input/output on
-each block and renders the highest-index sink; control-port arcs and multi-port
-routing are not yet supported.
-
-`pico-image.bin` is a 2 MiB raw flash image. Firmware starts at `0x10000000`;
-the bundle starts at `0x10180000`.
+The plugin URIs included in the bundle are inferred from the ingen file. There
+must be a valid PicoLV2 bundle under PICOLV2_PATH for each plugin used.
 
 ## 4. Flash the Pico
 
