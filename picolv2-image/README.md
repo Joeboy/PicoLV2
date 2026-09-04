@@ -3,7 +3,7 @@
 `picolv2-image` creates an image that can be flashed onto a Raspberry Pi Pico 2,
 containing:
 
-- The [pico-loader](../pico-loader/) firmware
+- The [picolv2-firmware](../picolv2-firmware/) firmware
 - An Ingen graph representing a plugin chain
 - The plugins used by the plugin chain
 
@@ -13,7 +13,7 @@ without any context.
 To create a plugin chain and flash it to the Pico, the complete process is:
 
 1. Create your plugin chain as an Ingen graph
-2. Acquire or build copies of: the Pico firmware (`pico-loader`); your desired
+2. Acquire or build copies of: the Pico firmware (`picolv2-firmware`); your desired
   plugins (built for PicoLv2); and the `picolv2-image` utility.
 3. Pack the plugins and combine them with the firmware ELF into a flash image.
 4. Flash the image onto the Pico using either the USB bootloader or a debug
@@ -46,7 +46,7 @@ make
 cd ..
 ```
 
-#### Build picolv2-image
+#### Build picolv2-image utility
 
 ```sh
 cd picolv2-image
@@ -56,30 +56,30 @@ cd ..
 
 the rest of this README assumes `picolv2-image` is on your PATH
 
-#### Build pico-loader
+#### Build picolv2-firmware
 
 ```sh
-cd pico-loader
+cd picolv2-firmware
 cargo build --release
 cd ..
 ```
 
-## 2.5 Convert the pico-loader ELF to binary (optional)
+## 2.5 Convert the picolv2-firmware ELF to binary (optional)
 
 You probably don't need to do this as `picolv2-image` can now convert the raw ELF
 file itself. In case you want to for some reason:
 
 ```sh
 rust-objcopy -O binary \
-  pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader \
-  pico-loader.bin
+  picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
+  picolv2-firmware.bin
 ```
 
 ## 3. Pack the plugins and combine them with the firmware
 
 ```sh
 picolv2-image pack \
-  --firmware-elf pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader \
+  --firmware-elf picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
   --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
     plugins/tine-piano/build/pico/plugin.so \
@@ -129,7 +129,7 @@ probe-rs download \
   --base-address 0x10000000 \
   --verify \
   pico-image.bin && \
-sleep 1 && \
+sleep 3 && \
 probe-rs reset --chip RP235x
 ```
 
@@ -139,7 +139,7 @@ probe-rs reset --chip RP235x
 probe-rs attach \
   --chip RP235x \
   --rtt-scan-memory \
-  pico-loader/target/thumbv8m.main-none-eabihf/release/pico-loader
+  picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware
 ```
 
 ## Bonus 2: Inspect The Image

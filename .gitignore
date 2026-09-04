@@ -1,4 +1,4 @@
 tools/lv2-smoke-test/smoke
 plugins.bundle
-pico-loader.bin
+picolv2-firmware.bin
 pico-image.bin

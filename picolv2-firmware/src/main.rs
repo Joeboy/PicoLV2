@@ -81,7 +81,7 @@ fn main() -> ! {
         HEAP.heap
             .init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
     }
-    info!("pico-loader starting");
+    info!("picolv2-firmware starting");
     log_heap("after init");
 
     let midi_queue = MIDI_QUEUE.init(Queue::new());

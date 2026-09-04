@@ -41,5 +41,5 @@ symbols, and currently needs only the descriptor's eight `R_ARM_RELATIVE`
 relocations.
 
 The Pico loader currently embeds this plugin directly from
-`pico-loader/src/plugin_host.rs`. Change its `include_bytes!` path to switch to
+`picolv2-firmware/src/plugin_host.rs`. Change its `include_bytes!` path to switch to
 a different compatible plugin.
