@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 goblin = "0.10.5"
-picolv2-image-format = { path = "../picolv2-image-format" }
+picolv2-image-format = { path = "../tools/picolv2-image-format" }
 rio_api = "0.8.5"
 rio_turtle = "0.8.5"
 oxiri = "0.2.11"

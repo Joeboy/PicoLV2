@@ -3,7 +3,7 @@
 `picolv2-image` creates an image that can be flashed onto a Raspberry Pi Pico 2,
 containing:
 
-- The [pico-loader](../../pico-loader/) firmware
+- The [pico-loader](../pico-loader/) firmware
 - An Ingen graph representing a plugin chain
 - The plugins used by the plugin chain
 
@@ -27,7 +27,7 @@ seem to have a proper homepage that I can find, but see
 [this video](https://www.youtube.com/watch?v=eMj-q5adAZ4) to get an idea.
 Basically it allows you to connect up LV2 plugins, listen to the results on your
 computer, then export the plugin graph (ie. effects chain or synth or whatever)
-as a file that looks something like [this](../../graph/main.ttl).
+as a file that looks something like [this](../graph/main.ttl).
 
 ## 2. Acquire or build required bits
 
@@ -49,9 +49,9 @@ cd ..
 #### Build picolv2-image
 
 ```sh
-cd tools/picolv2-image
+cd picolv2-image
 cargo build --release
-cd ../..
+cd ..
 ```
 
 the rest of this README assumes `picolv2-image` is on your PATH

@@ -1,7 +1,7 @@
 use std::{env, fs, io::BufReader, process::ExitCode};
 
-use goblin::elf::{program_header::PT_LOAD, Elf};
-use picolv2_image_format::{Bundle, Graph, FLASH_ADDRESS, MAGIC, MAX_SIZE, VERSION};
+use goblin::elf::{Elf, program_header::PT_LOAD};
+use picolv2_image_format::{Bundle, FLASH_ADDRESS, Graph, MAGIC, MAX_SIZE, VERSION};
 use rio_api::{
     model::{Subject, Term},
     parser::TriplesParser,
