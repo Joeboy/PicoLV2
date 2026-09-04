@@ -35,14 +35,11 @@ as a file that looks something like [this](../graph/main.ttl).
 
 Start at the root of this repo.
 
-#### Build the plugins
-
-At the time of writing the only plugins that will work are the ones in this
-repo:
+#### Build picolv2-firmware
 
 ```sh
-cd plugins
-make
+cd picolv2-firmware
+cargo build --release
 cd ..
 ```
 
@@ -54,20 +51,23 @@ cargo build --release
 cd ..
 ```
 
-the rest of this README assumes `picolv2-image` is on your PATH
+the rest of this README assumes `picolv2-image` is on your PATH.
 
-#### Build picolv2-firmware
+#### Build the plugins
+
+At the time of writing the only plugins that will work are the ones in this
+repo:
 
 ```sh
-cd picolv2-firmware
-cargo build --release
+cd plugins
+make
 cd ..
 ```
 
 ## 2.5 Convert the picolv2-firmware ELF to binary (optional)
 
 You probably don't need to do this as `picolv2-image` can now convert the raw
-ELF file itself. In case you want to for some reason:
+ELF file itself. In case you want to do it manually for some reason:
 
 ```sh
 rust-objcopy -O binary \
@@ -120,7 +120,7 @@ picolv2-image uf2 \
 Then put the Pico 2 into its USB bootloader mode and copy `pico-image.uf2` to
 the mounted `RPI-RP2` drive.
 
-## Option 2: Flash using a debug probe
+## Option 2: Flash using a debug probe and probe-rs
 
 ```sh
 probe-rs download \
@@ -133,7 +133,7 @@ sleep 3 && \
 probe-rs reset --chip RP235x
 ```
 
-## Bonus: debugging with a debug probe
+## Bonus: debugging with a debug probe and probe-rs
 
 ```sh
 probe-rs attach \
