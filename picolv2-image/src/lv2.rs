@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use crate::turtle::{self, RDF_TYPE};
 use picolv2_image_format::{METADATA_MAGIC, METADATA_VERSION, PortKind};
 
+const RDFS_SEE_ALSO: &str = "http://www.w3.org/2000/01/rdf-schema#seeAlso";
 const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
 const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
 const LV2_DEFAULT: &str = "http://lv2plug.in/ns/lv2core#default";
@@ -10,8 +13,26 @@ const LV2_AUDIO_PORT: &str = "http://lv2plug.in/ns/lv2core#AudioPort";
 const LV2_CONTROL_PORT: &str = "http://lv2plug.in/ns/lv2core#ControlPort";
 const ATOM_PORT: &str = "http://lv2plug.in/ns/ext/atom#AtomPort";
 
-pub fn compile_metadata(path: &str) -> Result<Vec<u8>, String> {
-    let triples = turtle::parse(path, "plugin")?;
+pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>, String> {
+    let manifest = turtle::parse(manifest_path, "plugin manifest")?;
+    let metadata_uri =
+        turtle::object_for(&manifest, plugin_uri, RDFS_SEE_ALSO).ok_or_else(|| {
+            format!("plugin manifest {manifest_path} has no rdfs:seeAlso for {plugin_uri}")
+        })?;
+    let metadata_path = metadata_uri.strip_prefix("file:").ok_or_else(|| {
+        format!("plugin manifest {manifest_path} has a non-local rdfs:seeAlso for {plugin_uri}")
+    })?;
+    let path = Path::new(metadata_path);
+    let metadata_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        Path::new(manifest_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(path)
+    };
+    let metadata_path = metadata_path.to_string_lossy();
+    let triples = turtle::parse(&metadata_path, "plugin")?;
     let mut port_subjects: Vec<_> = triples
         .iter()
         .filter(|triple| triple.predicate == LV2_PORT)
@@ -20,7 +41,9 @@ pub fn compile_metadata(path: &str) -> Result<Vec<u8>, String> {
     port_subjects.sort();
     port_subjects.dedup();
     if port_subjects.is_empty() || port_subjects.len() > u16::MAX as usize {
-        return Err(format!("plugin metadata {path} has an invalid port count"));
+        return Err(format!(
+            "plugin metadata {metadata_path} has an invalid port count"
+        ));
     }
 
     let mut ports = Vec::new();
@@ -40,17 +63,21 @@ pub fn compile_metadata(path: &str) -> Result<Vec<u8>, String> {
             PortKind::ControlInput
         } else {
             return Err(format!(
-                "plugin metadata {path} has unsupported port {subject}"
+                "plugin metadata {metadata_path} has unsupported port {subject}"
             ));
         };
         let index = turtle::object_for(&triples, &subject, LV2_INDEX)
-            .ok_or_else(|| format!("plugin metadata {path} port {subject} has no index"))?
+            .ok_or_else(|| format!("plugin metadata {metadata_path} port {subject} has no index"))?
             .parse::<u32>()
-            .map_err(|_| format!("plugin metadata {path} has invalid port index {subject}"))?;
+            .map_err(|_| {
+                format!("plugin metadata {metadata_path} has invalid port index {subject}")
+            })?;
         let default = turtle::object_for(&triples, &subject, LV2_DEFAULT)
             .map(|value| value.parse::<f32>())
             .transpose()
-            .map_err(|_| format!("plugin metadata {path} has invalid default for {subject}"))?;
+            .map_err(|_| {
+                format!("plugin metadata {metadata_path} has invalid default for {subject}")
+            })?;
         ports.push((index, kind, default));
     }
     ports.sort_by_key(|(index, _, _)| *index);

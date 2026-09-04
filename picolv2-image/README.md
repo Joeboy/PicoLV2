@@ -83,20 +83,21 @@ picolv2-image create \
   --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
     plugins/tine-piano/build/pico/plugin.so \
-    plugins/tine-piano/tine-piano.lv2/tine-piano.ttl \
+    plugins/tine-piano/tine-piano.lv2/manifest.ttl \
   --plugin https://joebutton.co.uk/lv2/string-synth \
     plugins/string-synth/build/pico/plugin.so \
-    plugins/string-synth/string-synth.lv2/string-synth.ttl \
+    plugins/string-synth/string-synth.lv2/manifest.ttl \
   --plugin https://joebutton.co.uk/lv2/delay-poc \
     plugins/delay/build/pico/plugin.so \
-    plugins/delay/delay.lv2/delay.ttl \
+    plugins/delay/delay.lv2/manifest.ttl \
   --output pico-image.bin
 ```
 
-Plugin URIs must be unique. Plugin TTL metadata is parsed during image creation
-and stored as compact port records; invalid or unsupported port metadata fails
-the command. The bundle has a 512 KiB maximum size. `--ingen` accepts Ingen's
-serialized Turtle graph (`main.ttl`), reading `ingen:Block`, `lv2:prototype`, and
+Plugin URIs must be unique. Each plugin's third argument is its `manifest.ttl`;
+the matching `rdfs:seeAlso` declaration locates the plugin TTL. Plugin metadata
+is parsed during image creation and stored as compact port records; invalid or
+unsupported port metadata fails the command. The bundle has a 512 KiB maximum
+size. `--ingen` accepts Ingen's serialized Turtle graph (`main.ttl`), reading `ingen:Block`, `lv2:prototype`, and
 `ingen:Arc`/`ingen:tail`/`ingen:head` statements. The packer converts this to
 the compact `PICO GRP` payload used on the Pico. Blocks are emitted in the
 Turtle order and must already be topologically ordered. The current host uses
@@ -154,9 +155,9 @@ image: pico-image.bin (2097152 bytes)
 firmware: 152284 bytes (0x10000000..0x100252dc)
 bundle: 524288 bytes (0x10180000..), format version 2
 plugins: 3
-  [0] https://joebutton.co.uk/lv2/tine-piano (binary 24476 bytes, metadata 738 bytes)
-  [1] https://joebutton.co.uk/lv2/string-synth (binary 21632 bytes, metadata 744 bytes)
-  [2] https://joebutton.co.uk/lv2/delay-poc (binary 17888 bytes, metadata 1183 bytes)
+  [0] https://joebutton.co.uk/lv2/tine-piano (binary 24476 bytes, metadata 40 bytes)
+  [1] https://joebutton.co.uk/lv2/string-synth (binary 21632 bytes, metadata 40 bytes)
+  [2] https://joebutton.co.uk/lv2/delay-poc (binary 17888 bytes, metadata 76 bytes)
 graph: 2 nodes, 1 edges
   node[0] https://joebutton.co.uk/lv2/tine-piano
   node[1] https://joebutton.co.uk/lv2/delay-poc

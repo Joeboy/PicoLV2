@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader};
+use std::{fs::File, io::BufReader, path::Path};
 
 use rio_api::{
     model::{Literal, Subject, Term},
@@ -16,7 +16,10 @@ pub struct Triple {
 
 pub fn parse(path: &str, kind: &str) -> Result<Vec<Triple>, String> {
     let file = File::open(path).map_err(|error| format!("cannot read {path}: {error}"))?;
-    let base = oxiri::Iri::parse(format!("file:{path}"))
+    let absolute_path = Path::new(path)
+        .canonicalize()
+        .map_err(|error| format!("cannot resolve {path}: {error}"))?;
+    let base = oxiri::Iri::parse(format!("file://{}", absolute_path.display()))
         .map_err(|_| format!("invalid {kind} base URI: {path}"))?;
     let mut triples = Vec::new();
     TurtleParser::new(BufReader::new(file), Some(base))

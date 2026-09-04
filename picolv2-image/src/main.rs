@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     }
     if arguments.first().map(String::as_str) != Some("create") {
         eprintln!(
-            "usage: picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
+            "usage: picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY MANIFEST.ttl [...]"
         );
         eprintln!("       picolv2-image uf2 -i IMAGE -o IMAGE.uf2");
         eprintln!("       picolv2-image info -i IMAGE");
@@ -58,7 +58,7 @@ fn main() -> ExitCode {
             }
             "--plugin" => {
                 if index + 3 >= arguments.len() {
-                    eprintln!("--plugin requires URI, binary path, and TTL path");
+                    eprintln!("--plugin requires URI, binary path, and manifest path");
                     return ExitCode::from(2);
                 }
                 plugins.push((
@@ -122,7 +122,7 @@ fn main() -> ExitCode {
     bundle.extend_from_slice(&(plugins.len() as u32).to_le_bytes());
     bundle.extend_from_slice(&(graph.len() as u32).to_le_bytes());
     let mut uris = Vec::new();
-    for (uri, binary_path, metadata_path) in plugins {
+    for (uri, binary_path, manifest_path) in plugins {
         if uris.iter().any(|existing| existing == &uri) {
             return fail(&format!("duplicate plugin URI: {uri}"));
         }
@@ -131,7 +131,7 @@ fn main() -> ExitCode {
             Ok(bytes) => bytes,
             Err(error) => return fail(&format!("cannot read {binary_path}: {error}")),
         };
-        let metadata = match lv2::compile_metadata(&metadata_path) {
+        let metadata = match lv2::compile_metadata(&uri, &manifest_path) {
             Ok(bytes) => bytes,
             Err(error) => return fail(&error),
         };
