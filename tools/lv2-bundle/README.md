@@ -1,9 +1,14 @@
 # lv2-bundle
 
-`lv2-bundle` packages LV2 plugins, then creates an image that contains both the
-PicoLv2 (`pico-loader`) firmware and the plugins package. This image can then be
-flashed to a Raspberry Pi Pico 2. See [here](https://github.com/Joeboy/PicoLV2)
-if you're somehow reading this without any context.
+`lv2-bundle` creates an image that can be flashed onto a Raspberry Pi Pico 2,
+containing:
+
+- The [pico-loader](../../pico-loader/) firmware
+- An Ingen graph representing a plugin chain
+- The plugins used by the plugin chain
+
+See [here](https://github.com/Joeboy/PicoLV2) if you're somehow reading this
+without any context.
 
 To create a plugin chain and flash it to the Pico, the complete process is:
 
