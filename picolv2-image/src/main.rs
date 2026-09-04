@@ -24,9 +24,9 @@ fn main() -> ExitCode {
     if arguments.first().map(String::as_str) == Some("info") {
         return info(&arguments[1..]);
     }
-    if arguments.first().map(String::as_str) != Some("pack") {
+    if arguments.first().map(String::as_str) != Some("create") {
         eprintln!(
-            "usage: picolv2-image pack -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
+            "usage: picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl --plugin URI BINARY TTL [...]"
         );
         eprintln!("       picolv2-image uf2 -i IMAGE -o IMAGE.uf2");
         eprintln!("       picolv2-image info -i IMAGE");

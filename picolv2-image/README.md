@@ -13,9 +13,9 @@ without any context.
 To create a plugin chain and flash it to the Pico, the complete process is:
 
 1. Create your plugin chain as an Ingen graph
-2. Acquire or build copies of: the Pico firmware (`picolv2-firmware`); your desired
-  plugins (built for PicoLv2); and the `picolv2-image` utility.
-3. Pack the plugins and combine them with the firmware ELF into a flash image.
+2. Acquire or build copies of: the Pico firmware (`picolv2-firmware`); your
+   desired plugins (built for PicoLv2); and the `picolv2-image` utility.
+3. Create a flash image from the plugins and firmware ELF.
 4. Flash the image onto the Pico using either the USB bootloader or a debug
    probe.
 
@@ -66,8 +66,8 @@ cd ..
 
 ## 2.5 Convert the picolv2-firmware ELF to binary (optional)
 
-You probably don't need to do this as `picolv2-image` can now convert the raw ELF
-file itself. In case you want to for some reason:
+You probably don't need to do this as `picolv2-image` can now convert the raw
+ELF file itself. In case you want to for some reason:
 
 ```sh
 rust-objcopy -O binary \
@@ -75,10 +75,10 @@ rust-objcopy -O binary \
   picolv2-firmware.bin
 ```
 
-## 3. Pack the plugins and combine them with the firmware
+## 3. Create the flash image
 
 ```sh
-picolv2-image pack \
+picolv2-image create \
   --firmware-elf picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
   --ingen graph/main.ttl \
   --plugin https://joebutton.co.uk/lv2/tine-piano \
