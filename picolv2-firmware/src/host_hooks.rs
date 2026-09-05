@@ -47,7 +47,7 @@ extern "C" fn picolv2_log_write(pointer: *const u8, len: i32) {
     }
 }
 
-pub const HOST_SYMBOLS: [(&str, *const ()); 9] = [
+pub const HOST_SYMBOLS: [(&str, *const ()); 10] = [
     ("picolv2_alloc", picolv2_alloc as *const ()),
     ("picolv2_dealloc", picolv2_dealloc as *const ()),
     ("picolv2_log_write", picolv2_log_write as *const ()),
@@ -57,6 +57,7 @@ pub const HOST_SYMBOLS: [(&str, *const ()); 9] = [
     ("__cxa_guard_release", __cxa_guard_release as *const ()),
     ("atexit", atexit as *const ()),
     ("_ZSt20__throw_length_errorPKc", cxx_throw_length_error as *const ()),
+    ("_fini", fini as *const ()),
 ];
 
 // C++'s unsized `operator delete` doesn't carry the original allocation size,
@@ -117,6 +118,11 @@ extern "C" fn __cxa_guard_release(guard: *mut u8) {
 extern "C" fn atexit(_callback: *const c_void) -> i32 {
     0
 }
+
+// newlib's `__libc_fini_array` (pulled in via libc.a) calls this at program
+// exit; plugins never exit, so it's never actually invoked.
+#[unsafe(export_name = "_fini")]
+extern "C" fn fini() {}
 
 // libstdc++ containers (e.g. std::vector) call this for defensive length
 // checks compiled in regardless of `-fno-exceptions`; plugins are built
