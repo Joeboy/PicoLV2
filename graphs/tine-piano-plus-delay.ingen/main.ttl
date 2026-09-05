@@ -1,0 +1,142 @@
+@prefix atom: <http://lv2plug.in/ns/ext/atom#> .
+@prefix doap: <http://usefulinc.com/ns/doap#> .
+@prefix ingen: <http://drobilla.net/ns/ingen#> .
+@prefix lv2: <http://lv2plug.in/ns/lv2core#> .
+@prefix midi: <http://lv2plug.in/ns/ext/midi#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix patch: <http://lv2plug.in/ns/ext/patch#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<audio_out_1>
+	ingen:canvasX 748.0 ;
+	ingen:canvasY 118.0 ;
+	lv2:index 3 ;
+	lv2:name "Audio Out 1" ;
+	lv2:symbol "audio_out_1" ;
+	a lv2:AudioPort ,
+		lv2:OutputPort .
+
+<control>
+	ingen:canvasX 32.0 ;
+	ingen:canvasY 32.0 ;
+	atom:bufferType atom:Sequence ;
+	atom:supports midi:MidiEvent ;
+	<http://lv2plug.in/ns/ext/resize-port#minimumSize> 4096 ;
+	lv2:designation lv2:control ;
+	lv2:index 0 ;
+	lv2:name "Control" ;
+	lv2:portProperty lv2:connectionOptional ;
+	lv2:symbol "control" ;
+	a atom:AtomPort ,
+		lv2:InputPort .
+
+<delay_poc>
+	ingen:canvasX 517.0 ;
+	ingen:canvasY 94.0 ;
+	lv2:port <delay_poc/delay_time> ,
+		<delay_poc/dry_wet> ,
+		<delay_poc/feedback> ,
+		<delay_poc/in> ,
+		<delay_poc/out> ;
+	lv2:prototype <https://joebutton.co.uk/lv2/delay-poc> ;
+	a ingen:Block .
+
+<delay_poc/delay_time>
+	ingen:value 0.25 ;
+	lv2:index 2 ;
+	a lv2:ControlPort ,
+		lv2:InputPort .
+
+<delay_poc/dry_wet>
+	ingen:value 0.5 ;
+	lv2:index 4 ;
+	a lv2:ControlPort ,
+		lv2:InputPort .
+
+<delay_poc/feedback>
+	ingen:value 0.5 ;
+	lv2:index 3 ;
+	a lv2:ControlPort ,
+		lv2:InputPort .
+
+<delay_poc/in>
+	lv2:index 0 ;
+	a lv2:AudioPort ,
+		lv2:InputPort .
+
+<delay_poc/out>
+	lv2:index 1 ;
+	a lv2:AudioPort ,
+		lv2:OutputPort .
+
+<event_in_1>
+	ingen:canvasX 98.0 ;
+	ingen:canvasY 118.0 ;
+	atom:bufferType atom:Sequence ;
+	atom:supports midi:MidiEvent ;
+	lv2:index 2 ;
+	lv2:name "Event In 1" ;
+	lv2:symbol "event_in_1" ;
+	a atom:AtomPort ,
+		lv2:InputPort .
+
+<>
+	ingen:arc [
+		ingen:head <tine_piano/midi_in> ;
+		ingen:tail <event_in_1>
+	] , [
+		ingen:head <delay_poc/in> ;
+		ingen:tail <tine_piano/output>
+	] , [
+		ingen:head <audio_out_1> ;
+		ingen:tail <delay_poc/out>
+	] ;
+	ingen:block <delay_poc> ,
+		<tine_piano> ;
+	ingen:polyphony 1 ;
+	<http://lv2plug.in/ns/extensions/ui#ui> ingen:GraphUIGtk2 ;
+	lv2:extensionData <http://lv2plug.in/ns/ext/state#interface> ;
+	lv2:port <audio_out_1> ,
+		<control> ,
+		<event_in_1> ,
+		<notify> ;
+	doap:name "actualingen" ;
+	a ingen:Graph ,
+		lv2:Plugin .
+
+<notify>
+	ingen:canvasX 128.0 ;
+	ingen:canvasY 32.0 ;
+	atom:bufferType atom:Sequence ;
+	atom:supports patch:Message ;
+	<http://lv2plug.in/ns/ext/resize-port#minimumSize> 4096 ;
+	lv2:designation lv2:control ;
+	lv2:index 1 ;
+	lv2:name "Notify" ;
+	lv2:portProperty lv2:connectionOptional ;
+	lv2:symbol "notify" ;
+	a atom:AtomPort ,
+		lv2:OutputPort .
+
+<tine_piano>
+	ingen:canvasX 277.0 ;
+	ingen:canvasY 95.0 ;
+	lv2:port <tine_piano/midi_in> ,
+		<tine_piano/output> ;
+	lv2:prototype <https://joebutton.co.uk/lv2/tine-piano> ;
+	a ingen:Block .
+
+<tine_piano/midi_in>
+	atom:bufferType atom:Sequence ;
+	atom:supports midi:MidiEvent ;
+	lv2:designation lv2:control ;
+	lv2:index 0 ;
+	a atom:AtomPort ,
+		lv2:InputPort .
+
+<tine_piano/output>
+	lv2:index 1 ;
+	a lv2:AudioPort ,
+		lv2:OutputPort .

@@ -60,6 +60,7 @@ What exists so far is:
 - At some point I'm going to have to figure out what to do about controls. Maybe
   eventually there will be hardware with knobs. Or for now we could wire it up
   to MIDI controller messages?
+- Once we have controls, we should maybe have some way to save state
 - Latency is currently poor, 50ms or something. I don't care much yet as it's
   still an experiment, but it could probably be improved by reducing buffer
   sizes etc.

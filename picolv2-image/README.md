@@ -21,13 +21,18 @@ To create a plugin chain and flash it to the Pico, the complete process is:
 
 ## 1. Create your plugin chain as an Ingen graph file
 
-This is a bit of a TODO, I haven't actually tried using "real" Ingen files yet.
-They can be created by [Ingen](https://gitlab.com/drobilla/ingen). Which doesn't
-seem to have a proper homepage that I can find, but see
-[this video](https://www.youtube.com/watch?v=eMj-q5adAZ4) to get an idea.
-Basically it allows you to connect up LV2 plugins, listen to the results on your
-computer, then export the plugin graph (ie. effects chain or synth or whatever)
-as a file that looks something like [this](../graphs/tine-piano-plus-delay/main.ttl).
+Ingen graph bundles (`.ingen` directories) can be created by
+[Ingen](https://gitlab.com/drobilla/ingen). I can't find a proper homepage for
+Ingen, but see [this video](https://www.youtube.com/watch?v=eMj-q5adAZ4) to get
+an idea. Basically it allows you to connect up LV2 plugins, listen to the
+results on your computer, then export the plugin graph bundle (like
+[graphs/tine-piano-plus-delay.ingen](../graphs/tine-piano-plus-delay.ingen)).
+
+You should be able to use it to create things like guitar effects chains and
+modular synthesizers.
+
+You need to use plugins that have been built for PicoLv2, of which there are
+currently very few (just the [ones in this repo](../plugins/)).
 
 ## 2. Acquire or build required bits
 
@@ -93,7 +98,7 @@ rust-objcopy -O binary \
 PICOLV2_PATH=plugins/build/picolv2/pico \
 picolv2-image create \
   --firmware-elf picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
-  --ingen graphs/tine-piano-plus-delay/main.ttl \
+  --ingen graphs/tine-piano-plus-delay.ingen \
   --output pico-image.bin
 ```
 
@@ -132,8 +137,9 @@ Plugin URIs must be unique and are resolved from `PICOLV2_PATH`; each bundle's
 `manifest.ttl` supplies the binary and the matching `rdfs:seeAlso` declaration
 locates the plugin TTL. Plugin metadata is parsed during image creation and
 stored as compact port records; invalid or unsupported port metadata fails the
-command. The bundle has a 512 KiB maximum size. `--ingen` accepts Ingen's
-serialized Turtle graph (`main.ttl`), reading
+command. The bundle has a 512 KiB maximum size. `--ingen` accepts an Ingen graph
+bundle directory (e.g. `graphs/tine-piano-plus-delay.ingen`), reading its
+`manifest.ttl` to locate and parse the graph.
 
 ## Bonus: debugging with a debug probe and probe-rs
 

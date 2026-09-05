@@ -25,7 +25,7 @@ fn main() -> ExitCode {
     }
     if arguments.first().map(String::as_str) != Some("create") {
         eprintln!(
-            "usage: PICOLV2_PATH=DIR[:DIR...] picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ttl [--plugin URI [...]]"
+            "usage: PICOLV2_PATH=DIR[:DIR...] picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN) --ingen GRAPH.ingen [--plugin URI [...]]"
         );
         eprintln!("       picolv2-image uf2 -i IMAGE -o IMAGE.uf2");
         eprintln!("       picolv2-image info -i IMAGE");
@@ -103,15 +103,9 @@ fn main() -> ExitCode {
         _ => return fail("PICOLV2_PATH is not set"),
     };
 
-    let graph = match graph_path.ends_with(".ttl") {
-        true => match ingen::compile(&graph_path) {
-            Ok(bytes) => bytes,
-            Err(error) => return fail(&error),
-        },
-        false => match fs::read(&graph_path) {
-            Ok(bytes) => bytes,
-            Err(error) => return fail(&format!("cannot read {graph_path}: {error}")),
-        },
+    let graph = match ingen::compile(&graph_path) {
+        Ok(bytes) => bytes,
+        Err(error) => return fail(&error),
     };
     let parsed_graph = match Graph::parse(&graph) {
         Ok(parsed_graph) => parsed_graph,
