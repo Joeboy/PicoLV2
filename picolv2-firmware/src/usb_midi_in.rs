@@ -39,8 +39,7 @@ impl<'d, A: UsbHostAllocator<'d>> MidiHandler<'d, A> {
         let endpoint = interface
             .iter_endpoints()
             .find(|endpoint| {
-                endpoint.ep_type() == EndpointType::Bulk
-                    && endpoint.ep_dir() == Direction::In
+                endpoint.ep_type() == EndpointType::Bulk && endpoint.ep_dir() == Direction::In
             })
             .ok_or(RegisterError::NoSupportedInterface)?;
 
@@ -119,7 +118,10 @@ pub async fn usb_midi_task(
         let mut midi = match MidiHandler::try_register(&bus, &enum_info, &configuration) {
             Ok(midi) => midi,
             Err(error) => {
-                warn!("Connected USB device has no supported MIDI input: {:?}", error);
+                warn!(
+                    "Connected USB device has no supported MIDI input: {:?}",
+                    error
+                );
                 bus.free_address(enum_info.device_address);
                 continue;
             }

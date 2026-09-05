@@ -176,7 +176,10 @@ fn resolve_graph_file(path: &str) -> Result<String, String> {
         }
     }
 
-    Err(format!("no graph found in manifest {}", manifest_path.display()))
+    Err(format!(
+        "no graph found in manifest {}",
+        manifest_path.display()
+    ))
 }
 
 fn local_path(uri: &str, referring_path: &str) -> Result<String, String> {
@@ -228,25 +231,30 @@ mod tests {
             assert_eq!(graph.edge_count, 1, "edge count mismatch for {bundle_path}");
 
             let node0 = graph.node(0).unwrap();
-            assert_eq!(node0.uri, synth_uri, "synth node URI mismatch for {bundle_path}");
+            assert_eq!(
+                node0.uri, source_uri,
+                "source node URI mismatch for {bundle_path}"
+            );
 
             let node1 = graph.node(1).unwrap();
             assert_eq!(
-                node1.uri,
-                b"https://joebutton.co.uk/lv2/delay-poc",
-                "delay node URI mismatch for {bundle_path}"
+                node1.uri, destination_uri,
+                "destination node URI mismatch for {bundle_path}"
             );
 
             let edge0 = graph.edge(0).unwrap();
             assert_eq!(edge0.source_node, 0);
             assert_eq!(edge0.destination_node, 1);
+            assert_eq!(edge0.source_port, 1);
+            assert_eq!(edge0.destination_port, 0);
             assert!(edge0.source_node < edge0.destination_node);
         }
     }
 
     #[test]
     fn test_compile_bundle_manifest() {
-        let bytes = compile("../graphs/tine-piano-plus-delay.ingen/manifest.ttl").expect("failed to compile manifest");
+        let bytes = compile("../graphs/tine-piano-plus-delay.ingen/manifest.ttl")
+            .expect("failed to compile manifest");
         let graph = Graph::parse(&bytes).expect("failed to parse compiled graph");
         assert_eq!(graph.node_count, 2);
         assert_eq!(graph.edge_count, 1);

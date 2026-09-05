@@ -6,12 +6,14 @@ use elf_loader::{
     image::{SyntheticModule, SyntheticSymbol},
     input::ElfBinary,
 };
-use heapless::{Vec, spsc::{Consumer, Producer}};
+use heapless::{
+    Vec,
+    spsc::{Consumer, Producer},
+};
 use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE, PluginMetadata, PortKind};
 
 use crate::audio_buffer::{
-    AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
-    block_mut_ptr,
+    AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE, block_mut_ptr,
 };
 use crate::host_hooks::HOST_SYMBOLS;
 use crate::log_heap;
@@ -62,7 +64,11 @@ pub struct PluginBinary {
 
 impl PluginBinary {
     pub fn load(name: &str, elf_bytes: &[u8]) -> Self {
-        info!("plugin load begin name={} elf_bytes={}", name, elf_bytes.len());
+        info!(
+            "plugin load begin name={} elf_bytes={}",
+            name,
+            elf_bytes.len()
+        );
         log_heap("before elf load");
         let raw = Loader::new()
             .run()
@@ -94,7 +100,11 @@ impl PluginBinary {
         Self { descriptor }
     }
 
-    pub fn instantiate(&self, sample_rate: f64, features: *const *const Lv2Feature) -> PluginInstance {
+    pub fn instantiate(
+        &self,
+        sample_rate: f64,
+        features: *const *const Lv2Feature,
+    ) -> PluginInstance {
         let handle = (self.descriptor.instantiate)(
             self.descriptor,
             sample_rate,
@@ -154,12 +164,14 @@ pub struct PluginHost {
 
 impl PluginHost {
     pub fn load(midi_consumer: Consumer<'static, MidiEvent>) -> Self {
-        let bundle_bytes = unsafe {
-            core::slice::from_raw_parts(FLASH_ADDRESS as *const u8, MAX_SIZE)
-        };
+        let bundle_bytes =
+            unsafe { core::slice::from_raw_parts(FLASH_ADDRESS as *const u8, MAX_SIZE) };
         let bundle = Bundle::parse(bundle_bytes).expect("invalid plugin bundle");
         let graph = bundle.graph().expect("invalid plugin graph");
-        assert!(graph.node_count as usize <= MAX_NODES, "too many graph nodes");
+        assert!(
+            graph.node_count as usize <= MAX_NODES,
+            "too many graph nodes"
+        );
 
         let features_ptr = core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature;
 
@@ -170,9 +182,14 @@ impl PluginHost {
         let mut nodes = Vec::new();
         for node_index in 0..graph.node_count {
             let node_uri = graph.node(node_index).expect("invalid graph node").uri;
-            let entry = bundle.find(node_uri).expect("graph plugin missing from bundle");
+            let entry = bundle
+                .find(node_uri)
+                .expect("graph plugin missing from bundle");
             let binary = if let Some(pos) = binaries.iter().position(|(uri, _)| *uri == node_uri) {
-                info!("graph node {} uri={} reusing loaded binary", node_index, node_uri);
+                info!(
+                    "graph node {} uri={} reusing loaded binary",
+                    node_index, node_uri
+                );
                 &binaries[pos].1
             } else {
                 info!(
@@ -191,23 +208,34 @@ impl PluginHost {
             let metadata = PluginMetadata::parse(entry.metadata).expect("invalid graph metadata");
             let mut instance = binary.instantiate(SAMPLE_RATE as f64, features_ptr);
             log_heap("after instantiate");
-            let input = metadata.port(PortKind::AudioInput, 0).map(|port| port.index);
-            let output = metadata.port(PortKind::AudioOutput, 0).map(|port| port.index);
+            let input = metadata
+                .port(PortKind::AudioInput, 0)
+                .map(|port| port.index);
+            let output = metadata
+                .port(PortKind::AudioOutput, 0)
+                .map(|port| port.index);
             if let Some(port) = metadata.port(PortKind::AtomInput, 0) {
-                instance.connect_port(port.index, core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void);
+                instance.connect_port(
+                    port.index,
+                    core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
+                );
             }
             if let Some(port) = input {
-                let buffer = unsafe { core::ptr::addr_of_mut!(NODE_INPUT_AUDIO[node_index as usize]) };
+                let buffer =
+                    unsafe { core::ptr::addr_of_mut!(NODE_INPUT_AUDIO[node_index as usize]) };
                 instance.connect_port(port, buffer as *mut c_void);
             }
             if let Some(port) = output {
-                let buffer = unsafe { core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[node_index as usize]) };
+                let buffer =
+                    unsafe { core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[node_index as usize]) };
                 instance.connect_port(port, buffer as *mut c_void);
             }
             let mut control_index = 0;
             while let Some(port) = metadata.port(PortKind::ControlInput, control_index) {
                 assert!(control_index < MAX_CONTROLS, "too many graph controls");
-                unsafe { NODE_CONTROLS[node_index as usize][control_index] = port.default.unwrap_or(0.0); }
+                unsafe {
+                    NODE_CONTROLS[node_index as usize][control_index] = port.default.unwrap_or(0.0);
+                }
                 let control = unsafe {
                     core::ptr::addr_of_mut!(NODE_CONTROLS[node_index as usize][control_index])
                 };
@@ -237,7 +265,10 @@ impl PluginHost {
         for edge_index in 0..graph.edge_count {
             has_outgoing[graph.edge(edge_index).unwrap().source_node as usize] = true;
         }
-        let output_node = (0..nodes.len()).rev().find(|index| !has_outgoing[*index]).expect("graph has no output");
+        let output_node = (0..nodes.len())
+            .rev()
+            .find(|index| !has_outgoing[*index])
+            .expect("graph has no output");
 
         Self {
             nodes,
@@ -287,7 +318,8 @@ impl PluginHost {
         }
         unsafe {
             core::ptr::copy_nonoverlapping(
-                NODE_OUTPUT_AUDIO[self.output_node].as_ptr(), output,
+                NODE_OUTPUT_AUDIO[self.output_node].as_ptr(),
+                output,
                 BLOCK_SIZE,
             );
         }

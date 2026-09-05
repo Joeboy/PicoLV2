@@ -139,4 +139,3 @@ pub fn log_heap(stage: &'static str) {
         HEAP.failed_request.load(Ordering::Relaxed),
     );
 }
-

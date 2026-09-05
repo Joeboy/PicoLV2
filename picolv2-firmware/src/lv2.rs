@@ -33,5 +33,5 @@ pub struct Lv2Descriptor {
     pub run: extern "C" fn(instance: *mut c_void, n_samples: u32),
     pub deactivate: extern "C" fn(instance: *mut c_void),
     pub cleanup: extern "C" fn(instance: *mut c_void),
-    pub extension_data: extern "C" fn(extension_data:*const c_char) -> *const c_void,
+    pub extension_data: extern "C" fn(extension_data: *const c_char) -> *const c_void,
 }
