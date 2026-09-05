@@ -2,3 +2,4 @@ tools/lv2-smoke-test/smoke
 picolv2-firmware.bin
 pico-image.bin
 plugins/build/
+*.sw[op]
