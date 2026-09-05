@@ -199,22 +199,49 @@ mod tests {
     use picolv2_image_format::Graph;
 
     #[test]
-    fn test_compile_bundle_directory() {
-        let bytes = compile("../graphs/tine-piano-plus-delay.ingen").expect("failed to compile tine-piano-plus-delay.ingen");
-        let graph = Graph::parse(&bytes).expect("failed to parse compiled graph");
-        assert_eq!(graph.node_count, 2);
-        assert_eq!(graph.edge_count, 1);
+    fn test_compile_all_ingen_bundles() {
+        let bundles = [
+            (
+                "../graphs/monosynth-plus-delay.ingen",
+                b"https://joebutton.co.uk/lv2/monosynth-poc" as &[u8],
+            ),
+            (
+                "../graphs/oxynth-plus-delay.ingen",
+                b"https://joebutton.co.uk/lv2/oxynth-poc",
+            ),
+            (
+                "../graphs/string-synth-plus-delay.ingen",
+                b"https://joebutton.co.uk/lv2/string-synth",
+            ),
+            (
+                "../graphs/tine-piano-plus-delay.ingen",
+                b"https://joebutton.co.uk/lv2/tine-piano",
+            ),
+        ];
 
-        let node0 = graph.node(0).unwrap();
-        assert_eq!(node0.uri, b"https://joebutton.co.uk/lv2/tine-piano");
+        for (bundle_path, synth_uri) in bundles {
+            let bytes = compile(bundle_path)
+                .unwrap_or_else(|e| panic!("failed to compile {bundle_path}: {e}"));
+            let graph = Graph::parse(&bytes)
+                .unwrap_or_else(|_| panic!("failed to parse graph for {bundle_path}"));
+            assert_eq!(graph.node_count, 2, "node count mismatch for {bundle_path}");
+            assert_eq!(graph.edge_count, 1, "edge count mismatch for {bundle_path}");
 
-        let node1 = graph.node(1).unwrap();
-        assert_eq!(node1.uri, b"https://joebutton.co.uk/lv2/delay-poc");
+            let node0 = graph.node(0).unwrap();
+            assert_eq!(node0.uri, synth_uri, "synth node URI mismatch for {bundle_path}");
 
-        let edge0 = graph.edge(0).unwrap();
-        assert_eq!(edge0.source_node, 0);
-        assert_eq!(edge0.destination_node, 1);
-        assert!(edge0.source_node < edge0.destination_node);
+            let node1 = graph.node(1).unwrap();
+            assert_eq!(
+                node1.uri,
+                b"https://joebutton.co.uk/lv2/delay-poc",
+                "delay node URI mismatch for {bundle_path}"
+            );
+
+            let edge0 = graph.edge(0).unwrap();
+            assert_eq!(edge0.source_node, 0);
+            assert_eq!(edge0.destination_node, 1);
+            assert!(edge0.source_node < edge0.destination_node);
+        }
     }
 
     #[test]

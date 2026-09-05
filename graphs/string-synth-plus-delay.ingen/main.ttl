@@ -82,19 +82,40 @@
 	a atom:AtomPort ,
 		lv2:InputPort .
 
+<string_synth>
+	ingen:canvasX 277.0 ;
+	ingen:canvasY 95.0 ;
+	lv2:port <string_synth/midi_in> ,
+		<string_synth/output> ;
+	lv2:prototype <https://joebutton.co.uk/lv2/string-synth> ;
+	a ingen:Block .
+
+<string_synth/midi_in>
+	atom:bufferType atom:Sequence ;
+	atom:supports midi:MidiEvent ;
+	lv2:designation lv2:control ;
+	lv2:index 0 ;
+	a atom:AtomPort ,
+		lv2:InputPort .
+
+<string_synth/output>
+	lv2:index 1 ;
+	a lv2:AudioPort ,
+		lv2:OutputPort .
+
 <>
 	ingen:arc [
-		ingen:head <tine_piano/midi_in> ;
+		ingen:head <string_synth/midi_in> ;
 		ingen:tail <event_in_1>
 	] , [
 		ingen:head <delay_poc/in> ;
-		ingen:tail <tine_piano/output>
+		ingen:tail <string_synth/output>
 	] , [
 		ingen:head <audio_out_1> ;
 		ingen:tail <delay_poc/out>
 	] ;
 	ingen:block <delay_poc> ,
-		<tine_piano> ;
+		<string_synth> ;
 	ingen:polyphony 1 ;
 	<http://lv2plug.in/ns/extensions/ui#ui> ingen:GraphUIGtk2 ;
 	lv2:extensionData <http://lv2plug.in/ns/ext/state#interface> ;
@@ -102,7 +123,7 @@
 		<control> ,
 		<event_in_1> ,
 		<notify> ;
-	doap:name "tine-piano-plus-delay" ;
+	doap:name "string-synth-plus-delay" ;
 	a ingen:Graph ,
 		lv2:Plugin .
 
@@ -118,25 +139,4 @@
 	lv2:portProperty lv2:connectionOptional ;
 	lv2:symbol "notify" ;
 	a atom:AtomPort ,
-		lv2:OutputPort .
-
-<tine_piano>
-	ingen:canvasX 277.0 ;
-	ingen:canvasY 95.0 ;
-	lv2:port <tine_piano/midi_in> ,
-		<tine_piano/output> ;
-	lv2:prototype <https://joebutton.co.uk/lv2/tine-piano> ;
-	a ingen:Block .
-
-<tine_piano/midi_in>
-	atom:bufferType atom:Sequence ;
-	atom:supports midi:MidiEvent ;
-	lv2:designation lv2:control ;
-	lv2:index 0 ;
-	a atom:AtomPort ,
-		lv2:InputPort .
-
-<tine_piano/output>
-	lv2:index 1 ;
-	a lv2:AudioPort ,
 		lv2:OutputPort .
