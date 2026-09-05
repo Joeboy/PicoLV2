@@ -12,6 +12,7 @@ const LV2_INPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#InputPort";
 const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
 const LV2_AUDIO_PORT: &str = "http://lv2plug.in/ns/lv2core#AudioPort";
 const LV2_CONTROL_PORT: &str = "http://lv2plug.in/ns/lv2core#ControlPort";
+const LV2_CV_PORT: &str = "http://lv2plug.in/ns/lv2core#CVPort";
 const ATOM_PORT: &str = "http://lv2plug.in/ns/ext/atom#AtomPort";
 
 pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>, String> {
@@ -64,6 +65,10 @@ pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>
             PortKind::ControlInput
         } else if types.contains(&LV2_CONTROL_PORT) && types.contains(&LV2_OUTPUT_PORT) {
             PortKind::ControlOutput
+        } else if types.contains(&LV2_CV_PORT) && types.contains(&LV2_INPUT_PORT) {
+            PortKind::CvInput
+        } else if types.contains(&LV2_CV_PORT) && types.contains(&LV2_OUTPUT_PORT) {
+            PortKind::CvOutput
         } else {
             return Err(format!(
                 "plugin metadata {metadata_path} has unsupported port {subject}"
