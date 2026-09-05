@@ -9,6 +9,7 @@ const INGEN_TAIL: &str = "http://drobilla.net/ns/ingen#tail";
 const INGEN_HEAD: &str = "http://drobilla.net/ns/ingen#head";
 const LV2_PROTOTYPE: &str = "http://lv2plug.in/ns/lv2core#prototype";
 const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
+const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
 const RDFS_SEE_ALSO: &str = "http://www.w3.org/2000/01/rdf-schema#seeAlso";
 
 #[derive(Clone, Debug)]
@@ -69,11 +70,18 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
         })
     };
 
+    let port_index = |port: &str| -> Result<u8, String> {
+        turtle::object_for(&triples, port, LV2_INDEX)
+            .ok_or_else(|| format!("Ingen port {port} has no lv2:index"))?
+            .parse::<u8>()
+            .map_err(|_| format!("Ingen port {port} has invalid lv2:index"))
+    };
+
     let mut raw_edges = Vec::new();
     for (tail, head) in arcs {
         if let (Some(src), Some(dst)) = (find_block(&tail), find_block(&head)) {
             if src != dst {
-                raw_edges.push((src, dst));
+                raw_edges.push((src, port_index(&tail)?, dst, port_index(&head)?));
             }
         }
     }
@@ -83,7 +91,7 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
     let num_blocks = blocks.len();
     let mut in_degree = vec![0usize; num_blocks];
     let mut adjacency = vec![Vec::new(); num_blocks];
-    for &(src, dst) in &raw_edges {
+    for &(src, _, dst, _) in &raw_edges {
         in_degree[dst] += 1;
         adjacency[src].push(dst);
     }
@@ -112,10 +120,20 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
         old_to_new[old_idx] = new_idx;
     }
 
-    let sorted_blocks: Vec<Block> = sorted_indices.into_iter().map(|i| blocks[i].clone()).collect();
-    let mut edges: Vec<(usize, usize)> = raw_edges
+    let sorted_blocks: Vec<Block> = sorted_indices
         .into_iter()
-        .map(|(src, dst)| (old_to_new[src], old_to_new[dst]))
+        .map(|i| blocks[i].clone())
+        .collect();
+    let mut edges: Vec<(usize, u8, usize, u8)> = raw_edges
+        .into_iter()
+        .map(|(src, source_port, dst, destination_port)| {
+            (
+                old_to_new[src],
+                source_port,
+                old_to_new[dst],
+                destination_port,
+            )
+        })
         .collect();
     edges.sort();
     edges.dedup();
@@ -130,11 +148,11 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
         result.extend_from_slice(&[0, 0]);
         result.extend_from_slice(block.prototype.as_bytes());
     }
-    for (source, destination) in edges {
+    for (source, source_port, destination, destination_port) in edges {
         result.extend_from_slice(&(source as u16).to_le_bytes());
-        result.extend_from_slice(&[0, 0]);
+        result.extend_from_slice(&[source_port, 0]);
         result.extend_from_slice(&(destination as u16).to_le_bytes());
-        result.extend_from_slice(&[0, 0]);
+        result.extend_from_slice(&[destination_port, 0]);
     }
     Ok(result)
 }
@@ -207,22 +225,31 @@ mod tests {
             (
                 "../graphs/monosynth-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/monosynth-poc" as &[u8],
+                b"https://joebutton.co.uk/lv2/delay-poc" as &[u8],
             ),
             (
                 "../graphs/oxynth-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/oxynth-poc",
+                b"https://joebutton.co.uk/lv2/delay-poc",
             ),
             (
                 "../graphs/string-synth-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/string-synth",
+                b"https://joebutton.co.uk/lv2/delay-poc",
             ),
             (
                 "../graphs/tine-piano-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/tine-piano",
+                b"https://joebutton.co.uk/lv2/delay-poc",
+            ),
+            (
+                "../graphs/note-plus-throwawayoscillator.ingen",
+                b"http://drobilla.net/ns/ingen-internals#Note",
+                b"https://joebutton.co.uk/lv2/throwawayoscillator",
             ),
         ];
 
-        for (bundle_path, synth_uri) in bundles {
+        for (bundle_path, source_uri, destination_uri) in bundles {
             let bytes = compile(bundle_path)
                 .unwrap_or_else(|e| panic!("failed to compile {bundle_path}: {e}"));
             let graph = Graph::parse(&bytes)

@@ -30,6 +30,8 @@ static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
 static mut NODE_INPUT_AUDIO: [[f32; BLOCK_SIZE]; MAX_NODES] = [[0.0; BLOCK_SIZE]; MAX_NODES];
 static mut NODE_OUTPUT_AUDIO: [[f32; BLOCK_SIZE]; MAX_NODES] = [[0.0; BLOCK_SIZE]; MAX_NODES];
 static mut NODE_CONTROLS: [[f32; MAX_CONTROLS]; MAX_NODES] = [[0.0; MAX_CONTROLS]; MAX_NODES];
+static mut NODE_CONTROL_OUTPUTS: [[f32; MAX_CONTROLS]; MAX_NODES] =
+    [[0.0; MAX_CONTROLS]; MAX_NODES];
 
 extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
     if uri.is_null() {
@@ -130,6 +132,8 @@ struct PluginNode {
     instance: PluginInstance,
     input_port: Option<u32>,
     output_port: Option<u32>,
+    control_inputs: Vec<(u32, *mut f32), MAX_CONTROLS>,
+    control_outputs: Vec<(u32, *mut f32), MAX_CONTROLS>,
 }
 
 impl PluginInstance {
@@ -231,6 +235,7 @@ impl PluginHost {
                 instance.connect_port(port, buffer as *mut c_void);
             }
             let mut control_index = 0;
+            let mut control_inputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::ControlInput, control_index) {
                 assert!(control_index < MAX_CONTROLS, "too many graph controls");
                 unsafe {
@@ -240,26 +245,124 @@ impl PluginHost {
                     core::ptr::addr_of_mut!(NODE_CONTROLS[node_index as usize][control_index])
                 };
                 instance.connect_port(port.index, control as *mut c_void);
+                control_inputs
+                    .push((port.index, control))
+                    .expect("too many graph controls");
+                control_index += 1;
+            }
+            let mut control_index = 0;
+            let mut control_outputs = Vec::new();
+            while let Some(port) = metadata.port(PortKind::ControlOutput, control_index) {
+                assert!(
+                    control_index < MAX_CONTROLS,
+                    "too many graph control outputs"
+                );
+                let control = unsafe {
+                    core::ptr::addr_of_mut!(
+                        NODE_CONTROL_OUTPUTS[node_index as usize][control_index]
+                    )
+                };
+                instance.connect_port(port.index, control as *mut c_void);
+                control_outputs
+                    .push((port.index, control))
+                    .expect("too many graph control outputs");
                 control_index += 1;
             }
             instance.activate();
             nodes
-                .push(PluginNode { instance, input_port: input, output_port: output })
+                .push(PluginNode {
+                    instance,
+                    input_port: input,
+                    output_port: output,
+                    control_inputs,
+                    control_outputs,
+                })
                 .unwrap_or_else(|_| panic!("too many graph nodes"));
         }
         for edge_index in 0..graph.edge_count {
             let edge = graph.edge(edge_index).expect("invalid graph edge");
-            assert!((edge.source_node as usize) < nodes.len() && (edge.destination_node as usize) < nodes.len(), "graph node reference out of range");
-            assert!(edge.source_node < edge.destination_node, "graph nodes must be topologically ordered");
-            nodes[edge.source_node as usize].output_port.expect("graph source has no audio output");
-            let destination_port = nodes[edge.destination_node as usize].input_port.expect("graph destination has no audio input");
-            assert!(edge.source_port == 0 && edge.destination_port == 0, "only first audio ports are supported");
-            let buffer = unsafe {
-                core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[edge.source_node as usize])
-            };
-            nodes[edge.destination_node as usize]
-                .instance
-                .connect_port(destination_port, buffer as *mut c_void);
+            assert!(
+                (edge.source_node as usize) < nodes.len()
+                    && (edge.destination_node as usize) < nodes.len(),
+                "graph node reference out of range"
+            );
+            assert!(
+                edge.source_node < edge.destination_node,
+                "graph nodes must be topologically ordered"
+            );
+            let source_index = edge.source_node as usize;
+            let destination_index = edge.destination_node as usize;
+            let source_metadata = PluginMetadata::parse(
+                bundle
+                    .find(
+                        graph
+                            .node(edge.source_node)
+                            .expect("invalid graph node")
+                            .uri,
+                    )
+                    .expect("graph plugin missing from bundle")
+                    .metadata,
+            )
+            .expect("invalid graph metadata");
+            let destination_metadata = PluginMetadata::parse(
+                bundle
+                    .find(
+                        graph
+                            .node(edge.destination_node)
+                            .expect("invalid graph node")
+                            .uri,
+                    )
+                    .expect("graph plugin missing from bundle")
+                    .metadata,
+            )
+            .expect("invalid graph metadata");
+            match (
+                source_metadata.port_by_index(edge.source_port as u32),
+                destination_metadata.port_by_index(edge.destination_port as u32),
+            ) {
+                (Some(source), Some(destination))
+                    if source.kind == PortKind::AudioOutput
+                        && destination.kind == PortKind::AudioInput =>
+                {
+                    assert_eq!(
+                        nodes[source_index].output_port,
+                        Some(source.index),
+                        "graph source audio port is not connected"
+                    );
+                    assert_eq!(
+                        nodes[destination_index].input_port,
+                        Some(destination.index),
+                        "graph destination audio port is not connected"
+                    );
+                    let buffer =
+                        unsafe { core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[source_index]) };
+                    nodes[destination_index]
+                        .instance
+                        .connect_port(destination.index, buffer as *mut c_void);
+                }
+                (Some(source), Some(destination))
+                    if source.kind == PortKind::ControlOutput
+                        && destination.kind == PortKind::ControlInput =>
+                {
+                    let control = nodes[source_index]
+                        .control_outputs
+                        .iter()
+                        .find(|(port, _)| *port == source.index)
+                        .map(|(_, control)| *control)
+                        .expect("graph source control port is not connected");
+                    assert!(
+                        nodes[destination_index]
+                            .control_inputs
+                            .iter()
+                            .any(|(port, _)| *port == destination.index),
+                        "graph destination control port is not connected"
+                    );
+                    nodes[destination_index]
+                        .instance
+                        .connect_port(destination.index, control as *mut c_void);
+                }
+                _ => panic!("graph edge connects incompatible ports"),
+            }
         }
         let mut has_outgoing = [false; MAX_NODES];
         for edge_index in 0..graph.edge_count {

@@ -62,6 +62,7 @@ pub enum PortKind {
     AudioOutput = 2,
     ControlInput = 3,
     AtomInput = 4,
+    ControlOutput = 5,
 }
 
 #[derive(Clone, Copy)]
@@ -276,6 +277,7 @@ impl<'a> PluginMetadata<'a> {
                 2 => PortKind::AudioOutput,
                 3 => PortKind::ControlInput,
                 4 => PortKind::AtomInput,
+                5 => PortKind::ControlOutput,
                 _ => return None,
             };
             if port_kind != kind {
@@ -296,6 +298,36 @@ impl<'a> PluginMetadata<'a> {
                 });
             }
             found += 1;
+        }
+        None
+    }
+
+    pub fn port_by_index(&self, requested_index: u32) -> Option<PortMetadata> {
+        for occurrence in 0..self.port_count as usize {
+            let offset = METADATA_HEADER_SIZE + occurrence * METADATA_PORT_SIZE;
+            let kind = match *self.bytes.get(offset)? {
+                1 => PortKind::AudioInput,
+                2 => PortKind::AudioOutput,
+                3 => PortKind::ControlInput,
+                4 => PortKind::AtomInput,
+                5 => PortKind::ControlOutput,
+                _ => return None,
+            };
+            if read_u32(self.bytes, offset + 4)? != requested_index {
+                continue;
+            }
+            let default = match *self.bytes.get(offset + 1)? {
+                0 => None,
+                1 => Some(f32::from_le_bytes(
+                    self.bytes.get(offset + 8..offset + 12)?.try_into().ok()?,
+                )),
+                _ => return None,
+            };
+            return Some(PortMetadata {
+                index: requested_index,
+                kind,
+                default,
+            });
         }
         None
     }

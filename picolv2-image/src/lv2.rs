@@ -62,6 +62,8 @@ pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>
             PortKind::AudioOutput
         } else if types.contains(&LV2_CONTROL_PORT) && types.contains(&LV2_INPUT_PORT) {
             PortKind::ControlInput
+        } else if types.contains(&LV2_CONTROL_PORT) && types.contains(&LV2_OUTPUT_PORT) {
+            PortKind::ControlOutput
         } else {
             return Err(format!(
                 "plugin metadata {metadata_path} has unsupported port {subject}"
