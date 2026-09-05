@@ -1,5 +1,5 @@
-// malloc/calloc/realloc/free for pico-target plugins, routed through the
-// firmware's tracked heap
+// malloc/calloc/realloc/free, and stdout, for pico-target plugins, routed
+// through the firmware's tracked heap and defmt logger
 #include <stddef.h>
 #include <string.h>
 
@@ -7,6 +7,15 @@
 
 extern void *picolv2_alloc(size_t size, size_t align);
 extern void picolv2_dealloc(void *ptr, size_t size, size_t align);
+extern void picolv2_log_write(const char *ptr, int len);
+
+// Overrides libnosys's no-op _write stub so plugin printf/puts output reaches
+// the firmware's defmt/RTT log instead of being silently discarded.
+int _write(int file, char *ptr, int len) {
+    (void)file;
+    picolv2_log_write(ptr, len);
+    return len;
+}
 
 typedef struct {
     size_t size;

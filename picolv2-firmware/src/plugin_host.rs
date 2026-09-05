@@ -13,6 +13,7 @@ use crate::audio_buffer::{
     AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE,
     block_mut_ptr,
 };
+use crate::host_hooks::HOST_SYMBOLS;
 use crate::log_heap;
 use crate::lv2::{
     ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap, MIDI_EVENT_URI,
@@ -68,14 +69,11 @@ impl PluginBinary {
             .load_dylib(ElfBinary::new(name, elf_bytes))
             .expect("failed to load lv2 plugin binary");
         log_heap("after elf load");
-        // `plugins/pico-alloc.c` leaves these two symbols undefined so plugin
-        // heap allocations are served by our tracked heap
+        // `plugins/pico-alloc.c` leaves these symbols undefined so plugin heap
+        // allocations and stdout writes are served by the firmware (see `host_hooks.rs`)
         let host = SyntheticModule::new(
             "picolv2-host",
-            [
-                SyntheticSymbol::function("picolv2_alloc", crate::picolv2_alloc as *const ()),
-                SyntheticSymbol::function("picolv2_dealloc", crate::picolv2_dealloc as *const ()),
-            ],
+            HOST_SYMBOLS.map(|(name, address)| SyntheticSymbol::function(name, address)),
         );
         let lib = Relocator::new()
             .run(raw)
