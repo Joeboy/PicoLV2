@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <math.h>
 
 // A minimal, self-contained subset of the real LV2 plugin ABI
 // (https://lv2plug.in/ns/lv2core), reimplemented here rather than pulling in
@@ -43,23 +44,6 @@ typedef struct LV2_Descriptor {
 #define LV2_MIDI__MidiEvent "http://lv2plug.in/ns/ext/midi#MidiEvent"
 
 #define AMPLITUDE 0.8f
-
-// Equal-tempered ratios for semitones C through B within one octave. Using a
-// small table avoids depending on libm/powf in the freestanding Pico build.
-static const float SEMITONE_RATIOS[12] = {
-    1.0f,
-    1.059463094f,
-    1.122462048f,
-    1.189207115f,
-    1.259921050f,
-    1.334839854f,
-    1.414213562f,
-    1.498307077f,
-    1.587401052f,
-    1.681792831f,
-    1.781797436f,
-    1.887748625f,
-};
 
 typedef struct {
     uint32_t size;
@@ -173,17 +157,7 @@ static void activate(LV2_Handle instance) {
 
 static float midi_note_frequency(uint8_t note) {
     // MIDI note 60 is middle C (C4), approximately 261.626 Hz.
-    int32_t octave = ((int32_t)note / 12) - 5;
-    float frequency = 261.625565f * SEMITONE_RATIOS[note % 12];
-    while (octave > 0) {
-        frequency *= 2.0f;
-        octave--;
-    }
-    while (octave < 0) {
-        frequency *= 0.5f;
-        octave++;
-    }
-    return frequency;
+    return 261.625565f * powf(2.0f, ((float)note - 60.0f) / 12.0f);
 }
 
 static void handle_midi_event(SynthState *synth, const uint8_t *message_data) {

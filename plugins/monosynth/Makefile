@@ -19,14 +19,14 @@ LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0
 # these link in as position-independent, relocation-free code. Must come
 # after the object file on the link line so `ld` sees the undefined symbols
 # it needs to satisfy before searching the archive.
-LDLIBS := -lgcc -lc -lnosys
+LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
 EXTRA_SRC := ../pico-alloc.c
 else ifeq ($(TARGET),linux)
 CC := gcc
 READELF := readelf
 CFLAGS := -fPIC -Wall -Wextra -O2
 LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined
-LDLIBS :=
+LDLIBS := -lm
 EXTRA_SRC :=
 else
 $(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')

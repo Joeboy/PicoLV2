@@ -11,7 +11,7 @@ MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 # picolv2_dealloc against picolv2-firmware's tracked heap at load time, so
 # they stay undefined here.
 LDFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,--gc-sections -Wl,-z,noexecstack -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
-LDLIBS := -lgcc -lc -lnosys
+LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
 EXTRA_SRC := ../pico-alloc.c
 else ifeq ($(TARGET),linux)
 CARGO_TARGET := x86_64-unknown-linux-gnu
