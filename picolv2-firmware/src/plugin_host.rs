@@ -24,12 +24,12 @@ use crate::lv2::{
 use crate::midi::{Lv2MidiSequence, MidiEvent};
 
 const MAX_NODES: usize = 8;
-const MAX_CONTROLS: usize = 8;
+const MAX_CONTROLS: usize = 24;
 // CV ports carry audio-rate signals (e.g. modular synth control voltages), so
 // each buffer costs a full BLOCK_SIZE array. RAM is tight, so these are
 // allocated from a shared pool sized to actual graph usage rather than
 // reserved per node/direction.
-const MAX_CV_BUFFERS: usize = 8;
+const MAX_CV_BUFFERS: usize = 16;
 
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
 static mut NODE_INPUT_AUDIO: [[f32; BLOCK_SIZE]; MAX_NODES] = [[0.0; BLOCK_SIZE]; MAX_NODES];
@@ -94,6 +94,8 @@ impl PluginBinary {
             .modules([host])
             .relocate()
             .expect("failed to relocate lv2 plugin binary");
+        lib.initialize()
+            .expect("failed to initialize lv2 plugin binary");
         log_heap("after relocation");
 
         let lv2_descriptor = unsafe {
