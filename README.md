@@ -64,7 +64,33 @@ What exists so far is:
 - Latency is currently poor, 50ms or something. I don't care much yet as it's
   still an experiment, but it could probably be improved by reducing buffer
   sizes etc.
+- At some point I should make there be downloadable binaries for the firmware,
+  `picolv2-image` and the plugins. I guess Github actions.
 - General testing. Lots of testing.
+
+## Caveats and limitations
+
+- This is still at an early stage of development and there may be frustrations,
+  particularly for beginners. Sorry about that.
+- I'm currently assuming Linux, for the PC-side parts. It _might_ work on macOS
+  or Windows if you have the dev toolchain setup. Somebody would have to try it
+  and let me know. Obviously the pico binaries themselves don't care what OS
+  your computer runs.
+- The Pico 2 runs at 150MHz without overclocking and has 520Kb of SRAM. There's
+  a lot you can do with that, but also a lot you can't.
+- Getting audio out of the Pico 2 involves a
+  [PCM1502 board and a soldering iron](https://github.com/Joeboy/oxynth/blob/master/README.md).
+  It's cheap, but not particularly user friendly. Also there's no audio in, so
+  guitar stompbox style usage is out. I'm hoping to look into a codec with audio
+  I/O soon. I like to imagine one day it might run on more consumer-friendly
+  hardware.
+- Don't expect to be able to download and use regular LV2 plugins on the Pico.
+  They need to be built specially for PicoLV2. As of now there's just the few
+  plugins in this repo. Other plugins will require an amount of work to get
+  working with PicoLV2. I haven't explored that much yet, I expect it to vary
+  between trivial and basically impossible depending on the plugin. In
+  particular anything that's not open source is in the "basically impossible"
+  category.
 
 ## AI declaration
 
