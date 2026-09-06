@@ -1,3 +1,5 @@
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::ffi::{CStr, c_char, c_void};
 
 use defmt::info;
@@ -6,10 +8,7 @@ use elf_loader::{
     image::{SyntheticModule, SyntheticSymbol},
     input::ElfBinary,
 };
-use heapless::{
-    Vec,
-    spsc::{Consumer, Producer},
-};
+use heapless::spsc::{Consumer, Producer};
 use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE, PluginMetadata, PortKind};
 
 use crate::audio_buffer::{
@@ -23,21 +22,7 @@ use crate::lv2::{
 };
 use crate::midi::{Lv2MidiSequence, MidiEvent};
 
-const MAX_NODES: usize = 8;
-const MAX_CONTROLS: usize = 24;
-// CV ports carry audio-rate signals (e.g. modular synth control voltages), so
-// each buffer costs a full BLOCK_SIZE array. RAM is tight, so these are
-// allocated from a shared pool sized to actual graph usage rather than
-// reserved per node/direction.
-const MAX_CV_BUFFERS: usize = 16;
-
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
-static mut NODE_INPUT_AUDIO: [[f32; BLOCK_SIZE]; MAX_NODES] = [[0.0; BLOCK_SIZE]; MAX_NODES];
-static mut NODE_OUTPUT_AUDIO: [[f32; BLOCK_SIZE]; MAX_NODES] = [[0.0; BLOCK_SIZE]; MAX_NODES];
-static mut NODE_CONTROLS: [[f32; MAX_CONTROLS]; MAX_NODES] = [[0.0; MAX_CONTROLS]; MAX_NODES];
-static mut NODE_CONTROL_OUTPUTS: [[f32; MAX_CONTROLS]; MAX_NODES] =
-    [[0.0; MAX_CONTROLS]; MAX_NODES];
-static mut CV_BUFFERS: [[f32; BLOCK_SIZE]; MAX_CV_BUFFERS] = [[0.0; BLOCK_SIZE]; MAX_CV_BUFFERS];
 
 extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
     if uri.is_null() {
@@ -140,10 +125,15 @@ struct PluginNode {
     instance: PluginInstance,
     input_port: Option<u32>,
     output_port: Option<u32>,
-    control_inputs: Vec<(u32, *mut f32), MAX_CONTROLS>,
-    control_outputs: Vec<(u32, *mut f32), MAX_CONTROLS>,
-    cv_inputs: Vec<(u32, *mut f32), MAX_CONTROLS>,
-    cv_outputs: Vec<(u32, *mut f32), MAX_CONTROLS>,
+    // Kept only to own the connected buffer for the node's lifetime; the
+    // plugin reads/writes it through the pointer handed to `connect_port`.
+    #[allow(dead_code)]
+    input_buffer: Option<Box<[f32; BLOCK_SIZE]>>,
+    output_buffer: Option<Box<[f32; BLOCK_SIZE]>>,
+    control_inputs: Vec<(u32, Box<f32>)>,
+    control_outputs: Vec<(u32, Box<f32>)>,
+    cv_inputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
+    cv_outputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
 }
 
 impl PluginInstance {
@@ -168,7 +158,7 @@ impl PluginInstance {
 /// Manages loaded LV2 plugin instances and bridges queued MIDI events
 /// through the audio processing pipeline.
 pub struct PluginHost {
-    nodes: Vec<PluginNode, MAX_NODES>,
+    nodes: Vec<PluginNode>,
     output_node: usize,
     midi_consumer: Consumer<'static, MidiEvent>,
     pending_midi: Option<MidiEvent>,
@@ -182,19 +172,14 @@ impl PluginHost {
             unsafe { core::slice::from_raw_parts(FLASH_ADDRESS as *const u8, MAX_SIZE) };
         let bundle = Bundle::parse(bundle_bytes).expect("invalid plugin bundle");
         let graph = bundle.graph().expect("invalid plugin graph");
-        assert!(
-            graph.node_count as usize <= MAX_NODES,
-            "too many graph nodes"
-        );
 
         let features_ptr = core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature;
 
         // Relocated binaries are shared across graph nodes that reference the
         // same plugin URI, so repeated nodes only cost another instance, not
         // another ELF load/relocation and RAM mapping.
-        let mut binaries: Vec<(&[u8], PluginBinary), MAX_NODES> = Vec::new();
+        let mut binaries: Vec<(&[u8], PluginBinary)> = Vec::new();
         let mut nodes = Vec::new();
-        let mut cv_buffers_used = 0usize;
         for node_index in 0..graph.node_count {
             let node_uri = graph.node(node_index).expect("invalid graph node").uri;
             let entry = bundle
@@ -215,9 +200,7 @@ impl PluginHost {
                     entry.metadata.len()
                 );
                 let binary = PluginBinary::load("graph-plugin.so", entry.binary);
-                binaries
-                    .push((node_uri, binary))
-                    .unwrap_or_else(|_| panic!("too many distinct graph plugin binaries"));
+                binaries.push((node_uri, binary));
                 &binaries.last().expect("just pushed").1
             };
             let metadata = PluginMetadata::parse(entry.metadata).expect("invalid graph metadata");
@@ -235,94 +218,62 @@ impl PluginHost {
                     core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
                 );
             }
+            let mut input_buffer = None;
             if let Some(port) = input {
-                let buffer =
-                    unsafe { core::ptr::addr_of_mut!(NODE_INPUT_AUDIO[node_index as usize]) };
-                instance.connect_port(port, buffer as *mut c_void);
+                let mut buffer = Box::new([0.0f32; BLOCK_SIZE]);
+                instance.connect_port(port, buffer.as_mut_ptr() as *mut c_void);
+                input_buffer = Some(buffer);
             }
+            let mut output_buffer = None;
             if let Some(port) = output {
-                let buffer =
-                    unsafe { core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[node_index as usize]) };
-                instance.connect_port(port, buffer as *mut c_void);
+                let mut buffer = Box::new([0.0f32; BLOCK_SIZE]);
+                instance.connect_port(port, buffer.as_mut_ptr() as *mut c_void);
+                output_buffer = Some(buffer);
             }
             let mut control_index = 0;
             let mut control_inputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::ControlInput, control_index) {
-                assert!(control_index < MAX_CONTROLS, "too many graph controls");
-                unsafe {
-                    NODE_CONTROLS[node_index as usize][control_index] = port.default.unwrap_or(0.0);
-                }
-                let control = unsafe {
-                    core::ptr::addr_of_mut!(NODE_CONTROLS[node_index as usize][control_index])
-                };
-                instance.connect_port(port.index, control as *mut c_void);
-                control_inputs
-                    .push((port.index, control))
-                    .expect("too many graph controls");
+                let mut control = Box::new(port.default.unwrap_or(0.0));
+                instance.connect_port(port.index, control.as_mut() as *mut f32 as *mut c_void);
+                control_inputs.push((port.index, control));
                 control_index += 1;
             }
             let mut control_index = 0;
             let mut control_outputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::ControlOutput, control_index) {
-                assert!(
-                    control_index < MAX_CONTROLS,
-                    "too many graph control outputs"
-                );
-                let control = unsafe {
-                    core::ptr::addr_of_mut!(
-                        NODE_CONTROL_OUTPUTS[node_index as usize][control_index]
-                    )
-                };
-                instance.connect_port(port.index, control as *mut c_void);
-                control_outputs
-                    .push((port.index, control))
-                    .expect("too many graph control outputs");
+                let mut control = Box::new(0.0f32);
+                instance.connect_port(port.index, control.as_mut() as *mut f32 as *mut c_void);
+                control_outputs.push((port.index, control));
                 control_index += 1;
             }
             let mut cv_index = 0;
             let mut cv_inputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::CvInput, cv_index) {
-                assert!(cv_buffers_used < MAX_CV_BUFFERS, "too many graph cv ports");
-                let buffer =
-                    unsafe { core::ptr::addr_of_mut!(CV_BUFFERS[cv_buffers_used]) };
-                unsafe {
-                    (*buffer).fill(port.default.unwrap_or(0.0));
-                }
-                instance.connect_port(port.index, buffer as *mut c_void);
-                cv_inputs
-                    .push((port.index, buffer as *mut f32))
-                    .expect("too many graph cv ports");
-                cv_buffers_used += 1;
+                let mut buffer = Box::new([port.default.unwrap_or(0.0); BLOCK_SIZE]);
+                instance.connect_port(port.index, buffer.as_mut_ptr() as *mut c_void);
+                cv_inputs.push((port.index, buffer));
                 cv_index += 1;
             }
             let mut cv_index = 0;
             let mut cv_outputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::CvOutput, cv_index) {
-                assert!(
-                    cv_buffers_used < MAX_CV_BUFFERS,
-                    "too many graph cv outputs"
-                );
-                let buffer =
-                    unsafe { core::ptr::addr_of_mut!(CV_BUFFERS[cv_buffers_used]) };
-                instance.connect_port(port.index, buffer as *mut c_void);
-                cv_outputs
-                    .push((port.index, buffer as *mut f32))
-                    .expect("too many graph cv outputs");
-                cv_buffers_used += 1;
+                let mut buffer = Box::new([0.0f32; BLOCK_SIZE]);
+                instance.connect_port(port.index, buffer.as_mut_ptr() as *mut c_void);
+                cv_outputs.push((port.index, buffer));
                 cv_index += 1;
             }
             instance.activate();
-            nodes
-                .push(PluginNode {
-                    instance,
-                    input_port: input,
-                    output_port: output,
-                    control_inputs,
-                    control_outputs,
-                    cv_inputs,
-                    cv_outputs,
-                })
-                .unwrap_or_else(|_| panic!("too many graph nodes"));
+            nodes.push(PluginNode {
+                instance,
+                input_port: input,
+                output_port: output,
+                input_buffer,
+                output_buffer,
+                control_inputs,
+                control_outputs,
+                cv_inputs,
+                cv_outputs,
+            });
         }
         for edge_index in 0..graph.edge_count {
             let edge = graph.edge(edge_index).expect("invalid graph edge");
@@ -379,11 +330,14 @@ impl PluginHost {
                         Some(destination.index),
                         "graph destination audio port is not connected"
                     );
-                    let buffer =
-                        unsafe { core::ptr::addr_of_mut!(NODE_OUTPUT_AUDIO[source_index]) };
+                    let buffer = nodes[source_index]
+                        .output_buffer
+                        .as_ref()
+                        .expect("graph source audio port is not connected")
+                        .as_ptr() as *mut c_void;
                     nodes[destination_index]
                         .instance
-                        .connect_port(destination.index, buffer as *mut c_void);
+                        .connect_port(destination.index, buffer);
                 }
                 (Some(source), Some(destination))
                     if source.kind == PortKind::ControlOutput
@@ -393,7 +347,7 @@ impl PluginHost {
                         .control_outputs
                         .iter()
                         .find(|(port, _)| *port == source.index)
-                        .map(|(_, control)| *control)
+                        .map(|(_, control)| control.as_ref() as *const f32 as *mut f32)
                         .expect("graph source control port is not connected");
                     assert!(
                         nodes[destination_index]
@@ -414,7 +368,7 @@ impl PluginHost {
                         .cv_outputs
                         .iter()
                         .find(|(port, _)| *port == source.index)
-                        .map(|(_, buffer)| *buffer)
+                        .map(|(_, buffer)| buffer.as_ref().as_ptr() as *mut f32)
                         .expect("graph source cv port is not connected");
                     assert!(
                         nodes[destination_index]
@@ -430,7 +384,7 @@ impl PluginHost {
                 _ => panic!("graph edge connects incompatible ports"),
             }
         }
-        let mut has_outgoing = [false; MAX_NODES];
+        let mut has_outgoing = alloc::vec![false; nodes.len()];
         for edge_index in 0..graph.edge_count {
             has_outgoing[graph.edge(edge_index).unwrap().source_node as usize] = true;
         }
@@ -487,7 +441,11 @@ impl PluginHost {
         }
         unsafe {
             core::ptr::copy_nonoverlapping(
-                NODE_OUTPUT_AUDIO[self.output_node].as_ptr(),
+                self.nodes[self.output_node]
+                    .output_buffer
+                    .as_ref()
+                    .expect("output node has no audio output port")
+                    .as_ptr(),
                 output,
                 BLOCK_SIZE,
             );

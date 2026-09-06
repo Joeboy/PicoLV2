@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
 mod audio_buffer;
 mod audio_out;
 mod host_hooks;
