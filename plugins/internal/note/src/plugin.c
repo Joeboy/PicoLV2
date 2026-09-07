@@ -31,10 +31,10 @@ typedef struct LV2_Descriptor {
 
 #define PORT_MIDI_IN 0
 #define PORT_FREQUENCY_OUT 1
-#define PORT_NOTE_OUT 2
-#define PORT_VELOCITY_OUT 3
-#define PORT_GATE_OUT 4
-#define PORT_TRIGGER_OUT 5
+#define PORT_VELOCITY_OUT 2
+#define PORT_GATE_OUT 3
+#define PORT_TRIGGER_OUT 4
+#define PORT_NOTE_OUT 5
 
 #define LV2_URID__map "http://lv2plug.in/ns/ext/urid#map"
 #define LV2_ATOM__Sequence "http://lv2plug.in/ns/ext/atom#Sequence"
