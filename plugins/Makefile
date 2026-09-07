@@ -1,5 +1,5 @@
 STRIP ?= 1
-PLUGINS := amp delay monosynth note oxynth string-synth throwawayoscillator tine-piano
+PLUGINS := amp delay monosynth internal/note oxynth string-synth throwawayoscillator tine-piano
 
 .PHONY: all pico linux bundle bundle-pico bundle-linux test clean
 

@@ -10,7 +10,7 @@ MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
 LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 LDLIBS := -Wl,--start-group -lc -lm -lnosys -lgcc -Wl,--end-group
-EXTRA_SRC := ../pico-alloc.c
+EXTRA_SRC := ../../pico-alloc.c
 else ifeq ($(TARGET),linux)
 CC := gcc
 READELF := readelf
