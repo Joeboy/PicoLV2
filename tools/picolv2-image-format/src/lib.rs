@@ -5,13 +5,15 @@ pub const VERSION: u32 = 2;
 pub const FLASH_ADDRESS: usize = 0x1018_0000;
 pub const MAX_SIZE: usize = 512 * 1024;
 pub const GRAPH_MAGIC: &[u8; 8] = b"PICO GRP";
-pub const GRAPH_VERSION: u32 = 1;
+pub const GRAPH_VERSION: u32 = 2;
 pub const METADATA_MAGIC: &[u8; 8] = b"PICO MET";
 pub const METADATA_VERSION: u32 = 1;
 const HEADER_SIZE: usize = 20;
 const RECORD_SIZE: usize = 12;
 const METADATA_HEADER_SIZE: usize = 16;
 const METADATA_PORT_SIZE: usize = 12;
+/// Size in bytes of a single node port-value override record.
+const OVERRIDE_SIZE: usize = 6;
 
 #[cfg(test)]
 extern crate std;
@@ -46,6 +48,24 @@ pub struct Graph<'a> {
 #[derive(Clone, Copy)]
 pub struct Node<'a> {
     pub uri: &'a [u8],
+    overrides: &'a [u8],
+}
+
+impl<'a> Node<'a> {
+    /// Graph-supplied value (e.g. Ingen's `ingen:value`) for a port that has
+    /// no incoming edge, taking priority over the plugin's own default.
+    pub fn override_value(&self, port_index: u8) -> Option<f32> {
+        let mut offset = 0;
+        while offset + OVERRIDE_SIZE <= self.overrides.len() {
+            if self.overrides[offset] == port_index {
+                return Some(f32::from_le_bytes(
+                    self.overrides[offset + 2..offset + 6].try_into().ok()?,
+                ));
+            }
+            offset += OVERRIDE_SIZE;
+        }
+        None
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -201,10 +221,13 @@ impl<'a> Graph<'a> {
         let mut offset = 16usize;
         for _ in 0..graph.node_count {
             let uri_length = read_u16(bytes, offset).ok_or(())? as usize;
+            let override_count = read_u16(bytes, offset + 2).ok_or(())? as usize;
             offset = offset
                 .checked_add(4)
                 .ok_or(())?
                 .checked_add(uri_length)
+                .ok_or(())?
+                .checked_add(override_count.checked_mul(OVERRIDE_SIZE).ok_or(())?)
                 .ok_or(())?;
         }
         offset = offset
@@ -220,14 +243,19 @@ impl<'a> Graph<'a> {
         let mut offset = 16usize;
         for index in 0..self.node_count {
             let uri_length = read_u16(self.bytes, offset).ok_or(())? as usize;
+            let override_count = read_u16(self.bytes, offset + 2).ok_or(())? as usize;
             let uri_start = offset.checked_add(4).ok_or(())?;
             let uri_end = uri_start.checked_add(uri_length).ok_or(())?;
+            let overrides_end = uri_end
+                .checked_add(override_count.checked_mul(OVERRIDE_SIZE).ok_or(())?)
+                .ok_or(())?;
             if index == requested_index {
                 return Ok(Node {
                     uri: &self.bytes[uri_start..uri_end],
+                    overrides: &self.bytes[uri_end..overrides_end],
                 });
             }
-            offset = uri_end;
+            offset = overrides_end;
         }
         Err(())
     }
@@ -236,10 +264,13 @@ impl<'a> Graph<'a> {
         let mut offset = 16usize;
         for _ in 0..self.node_count {
             let uri_length = read_u16(self.bytes, offset).ok_or(())? as usize;
+            let override_count = read_u16(self.bytes, offset + 2).ok_or(())? as usize;
             offset = offset
                 .checked_add(4)
                 .ok_or(())?
                 .checked_add(uri_length)
+                .ok_or(())?
+                .checked_add(override_count.checked_mul(OVERRIDE_SIZE).ok_or(())?)
                 .ok_or(())?;
         }
         let edge_offset = offset.checked_add(requested_index as usize * 8).ok_or(())?;

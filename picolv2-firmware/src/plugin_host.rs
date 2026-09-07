@@ -121,15 +121,25 @@ pub struct PluginInstance {
     handle: *mut c_void,
 }
 
+// Bridges a block-rate control output to an audio-rate CV input (e.g.
+// picolv2's Note plugin exposes gate/trigger as ControlPort, while ams-lv2's
+// env expects them as CVPort); the source value is broadcast across the
+// destination's whole block every render cycle.
+struct ControlToCvBridge {
+    source_node: usize,
+    source: *const f32,
+    destination: *mut [f32; BLOCK_SIZE],
+}
+
 struct PluginNode {
     instance: PluginInstance,
-    input_port: Option<u32>,
-    output_port: Option<u32>,
-    // Kept only to own the connected buffer for the node's lifetime; the
-    // plugin reads/writes it through the pointer handed to `connect_port`.
+    // Kept only to own the connected buffers for the node's lifetime; the
+    // plugin reads/writes them through the pointers handed to `connect_port`.
+    // Any audio port with no incoming/outgoing edge just stays at its
+    // initial value (silence), rather than being left as a null pointer.
     #[allow(dead_code)]
-    input_buffer: Option<Box<[f32; BLOCK_SIZE]>>,
-    output_buffer: Option<Box<[f32; BLOCK_SIZE]>>,
+    audio_inputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
+    audio_outputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
     control_inputs: Vec<(u32, Box<f32>)>,
     control_outputs: Vec<(u32, Box<f32>)>,
     cv_inputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
@@ -160,6 +170,7 @@ impl PluginInstance {
 pub struct PluginHost {
     nodes: Vec<PluginNode>,
     output_node: usize,
+    control_to_cv_bridges: Vec<ControlToCvBridge>,
     midi_consumer: Consumer<'static, MidiEvent>,
     pending_midi: Option<MidiEvent>,
     timeline_origin_micros: u64,
@@ -181,7 +192,8 @@ impl PluginHost {
         let mut binaries: Vec<(&[u8], PluginBinary)> = Vec::new();
         let mut nodes = Vec::new();
         for node_index in 0..graph.node_count {
-            let node_uri = graph.node(node_index).expect("invalid graph node").uri;
+            let graph_node = graph.node(node_index).expect("invalid graph node");
+            let node_uri = graph_node.uri;
             let entry = bundle
                 .find(node_uri)
                 .expect("graph plugin missing from bundle");
@@ -206,34 +218,35 @@ impl PluginHost {
             let metadata = PluginMetadata::parse(entry.metadata).expect("invalid graph metadata");
             let mut instance = binary.instantiate(SAMPLE_RATE as f64, features_ptr);
             log_heap("after instantiate");
-            let input = metadata
-                .port(PortKind::AudioInput, 0)
-                .map(|port| port.index);
-            let output = metadata
-                .port(PortKind::AudioOutput, 0)
-                .map(|port| port.index);
             if let Some(port) = metadata.port(PortKind::AtomInput, 0) {
                 instance.connect_port(
                     port.index,
                     core::ptr::addr_of_mut!(MIDI_SEQUENCE) as *mut c_void,
                 );
             }
-            let mut input_buffer = None;
-            if let Some(port) = input {
+            let mut audio_input_index = 0;
+            let mut audio_inputs = Vec::new();
+            while let Some(port) = metadata.port(PortKind::AudioInput, audio_input_index) {
                 let mut buffer = Box::new([0.0f32; BLOCK_SIZE]);
-                instance.connect_port(port, buffer.as_mut_ptr() as *mut c_void);
-                input_buffer = Some(buffer);
+                instance.connect_port(port.index, buffer.as_mut_ptr() as *mut c_void);
+                audio_inputs.push((port.index, buffer));
+                audio_input_index += 1;
             }
-            let mut output_buffer = None;
-            if let Some(port) = output {
+            let mut audio_output_index = 0;
+            let mut audio_outputs = Vec::new();
+            while let Some(port) = metadata.port(PortKind::AudioOutput, audio_output_index) {
                 let mut buffer = Box::new([0.0f32; BLOCK_SIZE]);
-                instance.connect_port(port, buffer.as_mut_ptr() as *mut c_void);
-                output_buffer = Some(buffer);
+                instance.connect_port(port.index, buffer.as_mut_ptr() as *mut c_void);
+                audio_outputs.push((port.index, buffer));
+                audio_output_index += 1;
             }
             let mut control_index = 0;
             let mut control_inputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::ControlInput, control_index) {
-                let mut control = Box::new(port.default.unwrap_or(0.0));
+                let value = graph_node
+                    .override_value(port.index as u8)
+                    .unwrap_or_else(|| port.default.unwrap_or(0.0));
+                let mut control = Box::new(value);
                 instance.connect_port(port.index, control.as_mut() as *mut f32 as *mut c_void);
                 control_inputs.push((port.index, control));
                 control_index += 1;
@@ -249,7 +262,10 @@ impl PluginHost {
             let mut cv_index = 0;
             let mut cv_inputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::CvInput, cv_index) {
-                let mut buffer = Box::new([port.default.unwrap_or(0.0); BLOCK_SIZE]);
+                let value = graph_node
+                    .override_value(port.index as u8)
+                    .unwrap_or_else(|| port.default.unwrap_or(0.0));
+                let mut buffer = Box::new([value; BLOCK_SIZE]);
                 instance.connect_port(port.index, buffer.as_mut_ptr() as *mut c_void);
                 cv_inputs.push((port.index, buffer));
                 cv_index += 1;
@@ -265,16 +281,15 @@ impl PluginHost {
             instance.activate();
             nodes.push(PluginNode {
                 instance,
-                input_port: input,
-                output_port: output,
-                input_buffer,
-                output_buffer,
+                audio_inputs,
+                audio_outputs,
                 control_inputs,
                 control_outputs,
                 cv_inputs,
                 cv_outputs,
             });
         }
+        let mut control_to_cv_bridges = Vec::new();
         for edge_index in 0..graph.edge_count {
             let edge = graph.edge(edge_index).expect("invalid graph edge");
             assert!(
@@ -320,21 +335,19 @@ impl PluginHost {
                     if source.kind == PortKind::AudioOutput
                         && destination.kind == PortKind::AudioInput =>
                 {
-                    assert_eq!(
-                        nodes[source_index].output_port,
-                        Some(source.index),
-                        "graph source audio port is not connected"
-                    );
-                    assert_eq!(
-                        nodes[destination_index].input_port,
-                        Some(destination.index),
+                    let buffer = nodes[source_index]
+                        .audio_outputs
+                        .iter()
+                        .find(|(port, _)| *port == source.index)
+                        .map(|(_, buffer)| buffer.as_ptr() as *mut c_void)
+                        .expect("graph source audio port is not connected");
+                    assert!(
+                        nodes[destination_index]
+                            .audio_inputs
+                            .iter()
+                            .any(|(port, _)| *port == destination.index),
                         "graph destination audio port is not connected"
                     );
-                    let buffer = nodes[source_index]
-                        .output_buffer
-                        .as_ref()
-                        .expect("graph source audio port is not connected")
-                        .as_ptr() as *mut c_void;
                     nodes[destination_index]
                         .instance
                         .connect_port(destination.index, buffer);
@@ -381,6 +394,28 @@ impl PluginHost {
                         .instance
                         .connect_port(destination.index, buffer as *mut c_void);
                 }
+                (Some(source), Some(destination))
+                    if source.kind == PortKind::ControlOutput
+                        && destination.kind == PortKind::CvInput =>
+                {
+                    let source_ptr = nodes[source_index]
+                        .control_outputs
+                        .iter()
+                        .find(|(port, _)| *port == source.index)
+                        .map(|(_, control)| control.as_ref() as *const f32)
+                        .expect("graph source control port is not connected");
+                    let destination_ptr = nodes[destination_index]
+                        .cv_inputs
+                        .iter_mut()
+                        .find(|(port, _)| *port == destination.index)
+                        .map(|(_, buffer)| buffer.as_mut() as *mut [f32; BLOCK_SIZE])
+                        .expect("graph destination cv port is not connected");
+                    control_to_cv_bridges.push(ControlToCvBridge {
+                        source_node: source_index,
+                        source: source_ptr,
+                        destination: destination_ptr,
+                    });
+                }
                 _ => panic!("graph edge connects incompatible ports"),
             }
         }
@@ -396,6 +431,7 @@ impl PluginHost {
         Self {
             nodes,
             output_node,
+            control_to_cv_bridges,
             midi_consumer,
             pending_midi: None,
             timeline_origin_micros: embassy_time::Instant::now().as_micros(),
@@ -436,15 +472,23 @@ impl PluginHost {
         }
         midi_sequence.set_event_count(event_count);
 
-        for node in &mut self.nodes {
+        for (index, node) in self.nodes.iter_mut().enumerate() {
             node.instance.run(BLOCK_SIZE as u32);
+            for bridge in &self.control_to_cv_bridges {
+                if bridge.source_node != index {
+                    continue;
+                }
+                let value = unsafe { *bridge.source };
+                unsafe { (*bridge.destination).fill(value) };
+            }
         }
         unsafe {
             core::ptr::copy_nonoverlapping(
                 self.nodes[self.output_node]
-                    .output_buffer
-                    .as_ref()
+                    .audio_outputs
+                    .first()
                     .expect("output node has no audio output port")
+                    .1
                     .as_ptr(),
                 output,
                 BLOCK_SIZE,

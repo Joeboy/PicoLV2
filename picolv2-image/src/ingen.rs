@@ -10,6 +10,7 @@ const INGEN_HEAD: &str = "http://drobilla.net/ns/ingen#head";
 const LV2_PROTOTYPE: &str = "http://lv2plug.in/ns/lv2core#prototype";
 const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
 const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
+const INGEN_VALUE: &str = "http://drobilla.net/ns/ingen#value";
 const RDFS_SEE_ALSO: &str = "http://www.w3.org/2000/01/rdf-schema#seeAlso";
 
 #[derive(Clone, Debug)]
@@ -17,6 +18,9 @@ struct Block {
     subject: String,
     prototype: String,
     ports: Vec<String>,
+    // Ingen-saved values (`ingen:value`) for ports with no incoming edge,
+    // e.g. a VCA's gain CV left at a fixed level rather than modulated.
+    overrides: Vec<(u8, f32)>,
 }
 
 pub fn compile(path: &str) -> Result<Vec<u8>, String> {
@@ -39,10 +43,27 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
                 .filter(|t| t.subject == triple.subject && t.predicate == LV2_PORT)
                 .map(|t| t.object.clone())
                 .collect();
+            let mut overrides = Vec::new();
+            for port in &ports {
+                let Some(value) = turtle::object_for(&triples, port, INGEN_VALUE) else {
+                    continue;
+                };
+                let Some(index) = turtle::object_for(&triples, port, LV2_INDEX) else {
+                    continue;
+                };
+                let index: u8 = index
+                    .parse()
+                    .map_err(|_| format!("Ingen port {port} has invalid lv2:index"))?;
+                let value: f32 = value
+                    .parse()
+                    .map_err(|_| format!("Ingen port {port} has invalid ingen:value"))?;
+                overrides.push((index, value));
+            }
             blocks.push(Block {
                 subject: triple.subject.clone(),
                 prototype: prototype.to_string(),
                 ports,
+                overrides,
             });
         }
     }
@@ -145,8 +166,13 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
     result.extend_from_slice(&(edges.len() as u16).to_le_bytes());
     for block in &sorted_blocks {
         result.extend_from_slice(&(block.prototype.len() as u16).to_le_bytes());
-        result.extend_from_slice(&[0, 0]);
+        result.extend_from_slice(&(block.overrides.len() as u16).to_le_bytes());
         result.extend_from_slice(block.prototype.as_bytes());
+        for &(port_index, value) in &block.overrides {
+            result.push(port_index);
+            result.push(0);
+            result.extend_from_slice(&value.to_le_bytes());
+        }
     }
     for (source, source_port, destination, destination_port) in edges {
         result.extend_from_slice(&(source as u16).to_le_bytes());

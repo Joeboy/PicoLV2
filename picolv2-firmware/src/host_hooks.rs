@@ -4,7 +4,6 @@
 //! plugin build and are not part of the host ABI.
 
 use core::alloc::{GlobalAlloc, Layout};
-use core::ffi::c_void;
 
 use defmt::info;
 
