@@ -43,6 +43,8 @@ typedef struct LV2_Descriptor {
 #define NOTE_STATE_IDLE 0
 #define NOTE_STATE_ACTIVE 1
 
+#define MAX_HELD_NOTES 16
+
 typedef struct {
     uint32_t size;
     uint32_t type;
@@ -70,6 +72,9 @@ typedef struct {
     float gate;
     float trigger;
     uint8_t state;
+    uint8_t held_notes[MAX_HELD_NOTES];
+    uint8_t held_velocities[MAX_HELD_NOTES];
+    uint32_t held_count;
     uint32_t atom_sequence_urid;
     uint32_t midi_event_urid;
     const LV2_Atom_Sequence *midi_in;
@@ -147,6 +152,7 @@ static LV2_Handle instantiate(const LV2_Descriptor *descriptor,
     state->gate = 0.0f;
     state->trigger = 0.0f;
     state->state = NOTE_STATE_IDLE;
+    state->held_count = 0;
     state->atom_sequence_urid = atom_sequence_urid;
     state->midi_event_urid = midi_event_urid;
     state->midi_in = 0;
@@ -190,27 +196,75 @@ static void activate(LV2_Handle instance) {
     state->gate = 0.0f;
     state->trigger = 0.0f;
     state->state = NOTE_STATE_IDLE;
+    state->held_count = 0;
 }
 
 static uint32_t pad_size(uint32_t size) {
     return (size + 7u) & ~7u;
 }
 
-static void emit_note_state(NoteState *state, const char *event_name, uint8_t note, uint8_t velocity) {
-    state->note = note;
-    state->velocity = velocity;
-    state->frequency = midi_note_frequency(note);
-
-    if (event_name[0] == 'o') {
-        state->state = NOTE_STATE_ACTIVE;
-        state->gate = 1.0f;
+static void sound_current_top(NoteState *state, int retrigger) {
+    uint32_t top = state->held_count - 1;
+    state->note = state->held_notes[top];
+    state->velocity = state->held_velocities[top];
+    state->frequency = midi_note_frequency(state->note);
+    state->state = NOTE_STATE_ACTIVE;
+    state->gate = 1.0f;
+    if (retrigger) {
         state->trigger = 1.0f;
-        printf("note: ON  note=%u velocity=%u freq=%.2f Hz\n", note, velocity, state->frequency);
-    } else {
+    }
+}
+
+/* Last-note-priority monophonic stack: note-off only affects pitch/gate
+ * when it releases the currently-sounding note, so releasing an earlier
+ * held note while a later one is still down does not stomp the pitch. */
+static void note_on(NoteState *state, uint8_t note, uint8_t velocity) {
+    for (uint32_t i = 0; i < state->held_count; i++) {
+        if (state->held_notes[i] == note) {
+            for (uint32_t j = i; j + 1 < state->held_count; j++) {
+                state->held_notes[j] = state->held_notes[j + 1];
+                state->held_velocities[j] = state->held_velocities[j + 1];
+            }
+            state->held_count--;
+            break;
+        }
+    }
+    if (state->held_count < MAX_HELD_NOTES) {
+        state->held_notes[state->held_count] = note;
+        state->held_velocities[state->held_count] = velocity;
+        state->held_count++;
+    }
+    sound_current_top(state, 1);
+    printf("note: ON  note=%u velocity=%u freq=%.2f Hz\n", note, velocity, state->frequency);
+}
+
+static void note_off(NoteState *state, uint8_t note, uint8_t velocity) {
+    int was_top = state->held_count > 0 &&
+                   state->held_notes[state->held_count - 1] == note;
+    for (uint32_t i = 0; i < state->held_count; i++) {
+        if (state->held_notes[i] == note) {
+            for (uint32_t j = i; j + 1 < state->held_count; j++) {
+                state->held_notes[j] = state->held_notes[j + 1];
+                state->held_velocities[j] = state->held_velocities[j + 1];
+            }
+            state->held_count--;
+            break;
+        }
+    }
+
+    if (!was_top) {
+        printf("note: OFF note=%u velocity=%u (ignored, not current)\n", note, velocity);
+        return;
+    }
+
+    if (state->held_count == 0) {
         state->state = NOTE_STATE_IDLE;
         state->gate = 0.0f;
         state->trigger = 0.0f;
         printf("note: OFF note=%u velocity=%u\n", note, velocity);
+    } else {
+        sound_current_top(state, 0);
+        printf("note: OFF note=%u velocity=%u -> reverting to note=%u\n", note, velocity, state->note);
     }
 }
 
@@ -242,14 +296,15 @@ static void run(LV2_Handle instance, uint32_t sample_count) {
                 uint8_t velocity = message[2];
 
                 if (status == 0x90 && velocity != 0) {
-                    emit_note_state(state, "on", note, velocity);
+                    note_on(state, note, velocity);
                 } else if ((status == 0x80 || (status == 0x90 && velocity == 0))) {
-                    emit_note_state(state, "off", note, velocity);
+                    note_off(state, note, velocity);
                 } else if (status == 0xb0 && (note == 120 || note == 123)) {
                     state->state = NOTE_STATE_IDLE;
                     state->gate = 0.0f;
                     state->trigger = 0.0f;
                     state->note = note;
+                    state->held_count = 0;
                     printf("note: ALL_OFF controller=%u\n", note);
                 }
             }
