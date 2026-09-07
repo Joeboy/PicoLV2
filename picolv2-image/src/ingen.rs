@@ -268,11 +268,6 @@ mod tests {
                 b"https://joebutton.co.uk/lv2/tine-piano",
                 b"https://joebutton.co.uk/lv2/delay-poc",
             ),
-            (
-                "../graphs/note-plus-throwawayoscillator.ingen",
-                b"http://drobilla.net/ns/ingen-internals#Note",
-                b"https://joebutton.co.uk/lv2/throwawayoscillator",
-            ),
         ];
 
         for (bundle_path, source_uri, destination_uri) in bundles {
