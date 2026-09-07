@@ -8,6 +8,8 @@ use embassy_rp::pio::{InterruptHandler, Pio};
 use {defmt_rtt as _, panic_probe as _};
 
 use crate::audio_buffer::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
+#[cfg(feature = "perf-diagnostics")]
+use crate::audio_buffer::REPORT_BLOCKS;
 use crate::i2s_ping_pong::{PioI2sOut, PioI2sOutProgram};
 use heapless::spsc::{Consumer, Producer};
 
@@ -49,6 +51,13 @@ pub async fn audio_task(
     let mut buf_a = [0u32; BLOCK_SIZE];
     let mut buf_b = [0u32; BLOCK_SIZE];
 
+    // Diagnostics: report how often the ready-block queue was empty (xrun,
+    // played as silence) roughly once a second.
+    #[cfg(feature = "perf-diagnostics")]
+    let mut total_blocks: u32 = 0;
+    #[cfg(feature = "perf-diagnostics")]
+    let mut xrun_blocks: u32 = 0;
+
     let mut i2s = PioI2sOut::new(
         &mut common,
         sm0,
@@ -61,6 +70,10 @@ pub async fn audio_task(
     );
 
     i2s.stream_ping_pong(dma_ch0, dma_ch1, &mut buf_a, &mut buf_b, move |buf| {
+        #[cfg(feature = "perf-diagnostics")]
+        {
+            total_blocks += 1;
+        }
         if let Some(index) = ready_consumer.dequeue() {
             let samples = unsafe { block_ptr(index) };
             for (sample_index, word) in buf.iter_mut().enumerate() {
@@ -72,7 +85,17 @@ pub async fn audio_task(
                 .enqueue(index)
                 .expect("free audio block queue unexpectedly full");
         } else {
+            #[cfg(feature = "perf-diagnostics")]
+            {
+                xrun_blocks += 1;
+            }
             buf.fill(0);
+        }
+        #[cfg(feature = "perf-diagnostics")]
+        if total_blocks >= REPORT_BLOCKS {
+            info!("audio out: xruns={}/{} blocks", xrun_blocks, total_blocks);
+            total_blocks = 0;
+            xrun_blocks = 0;
         }
         ControlFlow::Continue(())
     })

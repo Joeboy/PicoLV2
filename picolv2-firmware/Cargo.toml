@@ -6,6 +6,11 @@ license = "MIT OR Apache-2.0"
 
 publish = false
 
+[features]
+# Logs per-block CPU/xrun stats (audio_out.rs, plugin_host.rs) roughly once
+# a second, to help diagnose choppy audio caused by CPU-bound plugin graphs.
+perf-diagnostics = []
+
 [dependencies]
 embassy-executor = { version = "0.10.0", git = "https://github.com/embassy-rs/embassy", rev = "d66ac21e7e7ae0540e7225c3c1c52569b1292a87", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", git = "https://github.com/embassy-rs/embassy", rev = "d66ac21e7e7ae0540e7225c3c1c52569b1292a87", features = ["defmt", "defmt-timestamp-uptime"] }

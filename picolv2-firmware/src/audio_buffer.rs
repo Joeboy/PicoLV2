@@ -3,6 +3,10 @@ use static_cell::StaticCell;
 
 pub const SAMPLE_RATE: u32 = 48_000;
 pub const BLOCK_SIZE: usize = 512;
+// Roughly one second's worth of blocks, used to throttle diagnostic logging.
+// Only referenced when the perf-diagnostics feature is enabled.
+#[cfg_attr(not(feature = "perf-diagnostics"), allow(dead_code))]
+pub const REPORT_BLOCKS: u32 = (SAMPLE_RATE as usize / BLOCK_SIZE) as u32;
 pub const AUDIO_BLOCK_COUNT: usize = 3;
 pub const AUDIO_QUEUE_SIZE: usize = AUDIO_BLOCK_COUNT + 1;
 pub const I2S_DMA_BUFFER_COUNT: usize = 2;

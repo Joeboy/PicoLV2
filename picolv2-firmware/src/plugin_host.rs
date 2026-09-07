@@ -8,12 +8,16 @@ use elf_loader::{
     image::{SyntheticModule, SyntheticSymbol},
     input::ElfBinary,
 };
+#[cfg(feature = "perf-diagnostics")]
+use embassy_time::Instant;
 use heapless::spsc::{Consumer, Producer};
 use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE, PluginMetadata, PortKind};
 
 use crate::audio_buffer::{
     AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE, block_mut_ptr,
 };
+#[cfg(feature = "perf-diagnostics")]
+use crate::audio_buffer::REPORT_BLOCKS;
 use crate::host_hooks::HOST_SYMBOLS;
 use crate::log_heap;
 use crate::lv2::{
@@ -175,6 +179,13 @@ pub struct PluginHost {
     pending_midi: Option<MidiEvent>,
     timeline_origin_micros: u64,
     block_start_frame: u64,
+    // Diagnostics: per-node total render time, reported and reset every
+    // REPORT_BLOCKS blocks to identify which plugin(s) in the graph are
+    // expensive.
+    #[cfg(feature = "perf-diagnostics")]
+    node_micros: Vec<u64>,
+    #[cfg(feature = "perf-diagnostics")]
+    report_block_count: u32,
 }
 
 impl PluginHost {
@@ -428,6 +439,8 @@ impl PluginHost {
             .find(|index| !has_outgoing[*index])
             .expect("graph has no output");
 
+        #[cfg(feature = "perf-diagnostics")]
+        let node_micros = alloc::vec![0u64; nodes.len()];
         Self {
             nodes,
             output_node,
@@ -436,6 +449,10 @@ impl PluginHost {
             pending_midi: None,
             timeline_origin_micros: embassy_time::Instant::now().as_micros(),
             block_start_frame: 0,
+            #[cfg(feature = "perf-diagnostics")]
+            node_micros,
+            #[cfg(feature = "perf-diagnostics")]
+            report_block_count: 0,
         }
     }
 
@@ -473,7 +490,13 @@ impl PluginHost {
         midi_sequence.set_event_count(event_count);
 
         for (index, node) in self.nodes.iter_mut().enumerate() {
+            #[cfg(feature = "perf-diagnostics")]
+            let node_start = Instant::now();
             node.instance.run(BLOCK_SIZE as u32);
+            #[cfg(feature = "perf-diagnostics")]
+            {
+                self.node_micros[index] += node_start.elapsed().as_micros();
+            }
             for bridge in &self.control_to_cv_bridges {
                 if bridge.source_node != index {
                     continue;
@@ -496,6 +519,21 @@ impl PluginHost {
         }
 
         self.block_start_frame += BLOCK_SIZE as u64;
+
+        #[cfg(feature = "perf-diagnostics")]
+        {
+            self.report_block_count += 1;
+            if self.report_block_count >= REPORT_BLOCKS {
+                for (index, micros) in self.node_micros.iter_mut().enumerate() {
+                    info!(
+                        "plugin node {} total={}us over {} blocks",
+                        index, *micros, self.report_block_count
+                    );
+                    *micros = 0;
+                }
+                self.report_block_count = 0;
+            }
+        }
     }
 }
 
@@ -508,6 +546,18 @@ pub async fn plugin_host_task(
     info!("Starting LV2 plugin host task");
     let mut plugin = PluginHost::load(midi_consumer);
 
+    // Diagnostics: a block must render in BUDGET_MICROS to keep up with
+    // real time. Report max render time and overrun count roughly once a
+    // second so CPU-bound choppiness (vs. e.g. midi timing) can be confirmed.
+    #[cfg(feature = "perf-diagnostics")]
+    const BUDGET_MICROS: u64 = (BLOCK_SIZE as u64 * 1_000_000) / SAMPLE_RATE as u64;
+    #[cfg(feature = "perf-diagnostics")]
+    let mut block_count: u32 = 0;
+    #[cfg(feature = "perf-diagnostics")]
+    let mut max_micros: u64 = 0;
+    #[cfg(feature = "perf-diagnostics")]
+    let mut overrun_count: u32 = 0;
+
     loop {
         let index = loop {
             if let Some(index) = free_consumer.dequeue() {
@@ -516,7 +566,30 @@ pub async fn plugin_host_task(
             embassy_futures::yield_now().await;
         };
 
+        #[cfg(feature = "perf-diagnostics")]
+        let start = Instant::now();
         unsafe { plugin.process(block_mut_ptr(index)) };
+        #[cfg(feature = "perf-diagnostics")]
+        {
+            let elapsed_micros = start.elapsed().as_micros();
+            if elapsed_micros > BUDGET_MICROS {
+                overrun_count += 1;
+            }
+            if elapsed_micros > max_micros {
+                max_micros = elapsed_micros;
+            }
+            block_count += 1;
+            if block_count >= REPORT_BLOCKS {
+                info!(
+                    "plugin process: budget={}us max={}us overruns={}/{}",
+                    BUDGET_MICROS, max_micros, overrun_count, block_count
+                );
+                block_count = 0;
+                max_micros = 0;
+                overrun_count = 0;
+            }
+        }
+
         while ready_producer.enqueue(index).is_err() {
             embassy_futures::yield_now().await;
         }
