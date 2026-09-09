@@ -1,47 +1,47 @@
-# Build for the Pico 2 (default) with `make`, or for a native Linux host
-# with `make TARGET=linux` for quick plugin testing.
 TARGET ?= pico
 STRIP ?= 1
+
+BUILD_DIR := build/$(TARGET)
+SRC := src/plugin.c
+OUT := $(BUILD_DIR)/plugin.so
+BUNDLE_SOURCE := amp.lv2
+PICOLV2_PATH ?= build/picolv2/$(TARGET)
+BUNDLE_DIR := $(PICOLV2_PATH)/amp.lv2
 
 ifeq ($(TARGET),pico)
 CC := arm-none-eabi-gcc
 READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
+# malloc/calloc/free/realloc resolve picolv2_alloc/picolv2_dealloc against
+# picolv2-firmware's tracked heap at load time, so they stay undefined here.
 LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
-LDLIBS := -Wl,--start-group -lc -lm -lnosys -lgcc -Wl,--end-group
-EXTRA_SRC := ../../pico-alloc.c
-else ifeq ($(TARGET),linux)
+LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
+EXTRA_SRC := ../../lib/pico-alloc.c
+else ifeq ($(TARGET),pc)
 CC := gcc
 READELF := readelf
 CFLAGS := -fPIC -Wall -Wextra -O2
 LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined
-LDLIBS := -lm
+LDLIBS :=
 EXTRA_SRC :=
 else
-$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
+$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'pc')
 endif
 
 ifneq ($(STRIP),0)
 LDFLAGS += -Wl,--strip-debug
 endif
 
-BUILD_DIR := build/$(TARGET)
-SRC := src/plugin.c
-OUT := $(BUILD_DIR)/plugin.so
-BUNDLE_SOURCE := note.lv2
-PICOLV2_PATH ?= build/picolv2/$(TARGET)
-BUNDLE_DIR := $(PICOLV2_PATH)/note.lv2
-
-.PHONY: all pico linux bundle install install-pico clean info
+.PHONY: all pico pc bundle install install-pico clean info
 
 all: $(OUT)
 
 pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP)
 
-linux:
-	$(MAKE) TARGET=linux STRIP=$(STRIP)
+pc:
+	$(MAKE) TARGET=pc STRIP=$(STRIP)
 
 bundle:
 	$(MAKE) TARGET=$(TARGET) STRIP=$(STRIP)
@@ -50,7 +50,7 @@ bundle:
 	cp $(OUT) $(BUNDLE_DIR)/plugin.so
 
 install:
-	$(MAKE) TARGET=linux STRIP=$(STRIP) bundle
+	$(MAKE) TARGET=pc STRIP=$(STRIP) bundle
 
 install-pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP) bundle

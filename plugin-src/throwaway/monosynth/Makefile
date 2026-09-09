@@ -1,5 +1,5 @@
-# Build for the Pico 2 (default) with `make`, or for a native Linux host
-# with `make TARGET=linux` - useful for fast host-side testing of the plugin
+# Build for the Pico 2 (default) with `make`, or for a native PC host
+# with `make TARGET=pc` - useful for fast host-side testing of the plugin
 # logic without needing hardware.
 TARGET ?= pico
 STRIP ?= 1
@@ -20,8 +20,8 @@ LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0
 # after the object file on the link line so `ld` sees the undefined symbols
 # it needs to satisfy before searching the archive.
 LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
-EXTRA_SRC := ../pico-alloc.c
-else ifeq ($(TARGET),linux)
+EXTRA_SRC := ../../lib/pico-alloc.c
+else ifeq ($(TARGET),pc)
 CC := gcc
 READELF := readelf
 CFLAGS := -fPIC -Wall -Wextra -O2
@@ -29,7 +29,7 @@ LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined
 LDLIBS := -lm
 EXTRA_SRC :=
 else
-$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
+$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'pc')
 endif
 
 ifneq ($(STRIP),0)
@@ -42,7 +42,7 @@ OUT := $(BUILD_DIR)/plugin.so
 
 # LV2 bundle directory: manifest.ttl + monosynth.ttl describe the plugin
 # for real LV2 hosts (e.g. jalv, https://gitlab.com/drobilla/jalv); the
-# Linux binary is copied in alongside them since LV2 hosts expect a plugin's
+# PC binary is copied in alongside them since LV2 hosts expect a plugin's
 # binary to live in its own bundle directory. Point `LV2_PATH` at the parent
 # of this repo's monosynth directory (or symlink the bundle into ~/.lv2/)
 # to make hosts like jalv find it: `jalv https://joebutton.co.uk/lv2/monosynth-poc`.
@@ -50,15 +50,15 @@ BUNDLE_SOURCE := monosynth.lv2
 PICOLV2_PATH ?= build/picolv2/$(TARGET)
 BUNDLE_DIR := $(PICOLV2_PATH)/monosynth.lv2
 
-.PHONY: all pico linux bundle install install-pico test clean info
+.PHONY: all pico pc bundle install install-pico test clean info
 
 all: $(OUT)
 
 pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP)
 
-linux:
-	$(MAKE) TARGET=linux STRIP=$(STRIP)
+pc:
+	$(MAKE) TARGET=pc STRIP=$(STRIP)
 
 bundle:
 	$(MAKE) TARGET=$(TARGET) STRIP=$(STRIP)
@@ -67,7 +67,7 @@ bundle:
 	cp $(OUT) $(BUNDLE_DIR)/plugin.so
 
 install:
-	$(MAKE) TARGET=linux STRIP=$(STRIP) bundle
+	$(MAKE) TARGET=pc STRIP=$(STRIP) bundle
 
 install-pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP) bundle
@@ -75,8 +75,8 @@ install-pico:
 SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c
 
 test: bundle $(SMOKE_TEST)
-	cc -std=c11 -Wall -Wextra -Werror -o build/linux/smoke $(SMOKE_TEST) -ldl -lm
-	LV2_PATH="$(CURDIR)" ./build/linux/smoke --expect-frequency 440 ./build/linux/plugin.so
+	cc -std=c11 -Wall -Wextra -Werror -o build/pc/smoke $(SMOKE_TEST) -ldl -lm
+	LV2_PATH="$(CURDIR)" ./build/pc/smoke --expect-frequency 440 ./build/pc/plugin.so
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

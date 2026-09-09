@@ -249,22 +249,22 @@ mod tests {
     fn test_compile_all_ingen_bundles() {
         let bundles = [
             (
-                "../graphs/monosynth-plus-delay.ingen",
+                "../patches/throwaway/monosynth-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/monosynth-poc" as &[u8],
                 b"https://joebutton.co.uk/lv2/delay-poc" as &[u8],
             ),
             (
-                "../graphs/oxynth-plus-delay.ingen",
+                "../patches/throwaway/oxynth-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/oxynth-poc",
                 b"https://joebutton.co.uk/lv2/delay-poc",
             ),
             (
-                "../graphs/string-synth-plus-delay.ingen",
+                "../patches/throwaway/string-synth-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/string-synth",
                 b"https://joebutton.co.uk/lv2/delay-poc",
             ),
             (
-                "../graphs/tine-piano-plus-delay.ingen",
+                "../patches/throwaway/tine-piano-plus-delay.ingen",
                 b"https://joebutton.co.uk/lv2/tine-piano",
                 b"https://joebutton.co.uk/lv2/delay-poc",
             ),
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_compile_bundle_manifest() {
-        let bytes = compile("../graphs/tine-piano-plus-delay.ingen/manifest.ttl")
+        let bytes = compile("../patches/throwaway/tine-piano-plus-delay.ingen/manifest.ttl")
             .expect("failed to compile manifest");
         let graph = Graph::parse(&bytes).expect("failed to parse compiled graph");
         assert_eq!(graph.node_count, 2);
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_rejects_bare_ttl_without_manifest() {
-        let result = compile("../graphs/tine-piano-plus-delay.ingen/main.ttl");
+        let result = compile("../patches/throwaway/tine-piano-plus-delay.ingen/main.ttl");
         assert!(result.is_err());
     }
 }

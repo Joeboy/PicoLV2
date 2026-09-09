@@ -4,9 +4,9 @@ STRIP ?= 1
 BUILD_DIR := build/$(TARGET)
 SRC := src/plugin.c
 OUT := $(BUILD_DIR)/plugin.so
-BUNDLE_SOURCE := amp.lv2
+BUNDLE_SOURCE := delay.lv2
 PICOLV2_PATH ?= build/picolv2/$(TARGET)
-BUNDLE_DIR := $(PICOLV2_PATH)/amp.lv2
+BUNDLE_DIR := $(PICOLV2_PATH)/delay.lv2
 
 ifeq ($(TARGET),pico)
 CC := arm-none-eabi-gcc
@@ -17,8 +17,8 @@ CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
 # picolv2-firmware's tracked heap at load time, so they stay undefined here.
 LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
-EXTRA_SRC := ../pico-alloc.c
-else ifeq ($(TARGET),linux)
+EXTRA_SRC := ../../lib/pico-alloc.c
+else ifeq ($(TARGET),pc)
 CC := gcc
 READELF := readelf
 CFLAGS := -fPIC -Wall -Wextra -O2
@@ -26,22 +26,22 @@ LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined
 LDLIBS :=
 EXTRA_SRC :=
 else
-$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
+$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'pc')
 endif
 
 ifneq ($(STRIP),0)
 LDFLAGS += -Wl,--strip-debug
 endif
 
-.PHONY: all pico linux bundle install install-pico clean info
+.PHONY: all pico pc bundle install install-pico clean info
 
 all: $(OUT)
 
 pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP)
 
-linux:
-	$(MAKE) TARGET=linux STRIP=$(STRIP)
+pc:
+	$(MAKE) TARGET=pc STRIP=$(STRIP)
 
 bundle:
 	$(MAKE) TARGET=$(TARGET) STRIP=$(STRIP)
@@ -50,7 +50,7 @@ bundle:
 	cp $(OUT) $(BUNDLE_DIR)/plugin.so
 
 install:
-	$(MAKE) TARGET=linux STRIP=$(STRIP) bundle
+	$(MAKE) TARGET=pc STRIP=$(STRIP) bundle
 
 install-pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP) bundle

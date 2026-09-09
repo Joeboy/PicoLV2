@@ -5,7 +5,7 @@ An LV2 instrument written in Rust and derived from the DSP and MIDI behaviour of
 
 The implementation is `#![no_std]`. Cargo builds a PIC Rust `staticlib` for each
 target, then the platform C linker wraps that archive into a shared object: a
-runtime-loadable ARM `ET_DYN` for Pico 2 or a conventional Linux LV2 plugin.
+runtime-loadable ARM `ET_DYN` for Pico 2 or a conventional PC LV2 plugin.
 
 ## Features
 
@@ -33,7 +33,7 @@ runtime-loadable ARM `ET_DYN` for Pico 2 or a conventional Linux LV2 plugin.
 ## Build
 
 - `make` or `make pico`: build `build/pico/plugin.so`
-- `make linux`: build `build/linux/plugin.so`
+- `make pc`: build `build/pc/plugin.so`
 - `make bundle`: build and populate `oxynth.lv2/plugin.so`
 
 The Pico artifact is ARM hard-float PIC, approximately 7 KiB, has no unresolved

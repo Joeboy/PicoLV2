@@ -1,29 +1,28 @@
-# Build the Rust Oxynth LV2 plugin for Pico 2 (default) or Linux.
 TARGET ?= pico
 STRIP ?= 1
 
 ifeq ($(TARGET),pico)
 CARGO_TARGET := thumbv8m.main-none-eabihf
-RUST_ARCHIVE := target/$(CARGO_TARGET)/release/liboxynth.a
+RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libtine_piano.a
 LINKER := arm-none-eabi-gcc
 READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
-# malloc/calloc/free/realloc (in ../pico-alloc.c) resolve picolv2_alloc/
+# malloc/calloc/free/realloc (in pico-alloc.c) resolve picolv2_alloc/
 # picolv2_dealloc against picolv2-firmware's tracked heap at load time, so
 # they stay undefined here.
 LDFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,--gc-sections -Wl,-z,noexecstack -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
-EXTRA_SRC := ../pico-alloc.c
-else ifeq ($(TARGET),linux)
+EXTRA_SRC := ../../lib/pico-alloc.c
+else ifeq ($(TARGET),pc)
 CARGO_TARGET := x86_64-unknown-linux-gnu
-RUST_ARCHIVE := target/$(CARGO_TARGET)/release/liboxynth.a
+RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libtine_piano.a
 LINKER := gcc
 READELF := readelf
 LDFLAGS := -shared -Wl,-Bsymbolic -Wl,--no-undefined -Wl,--gc-sections -Wl,-z,noexecstack
 LDLIBS := -ldl -lpthread -lm
 EXTRA_SRC :=
 else
-$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'linux')
+$(error Unknown TARGET '$(TARGET)', expected 'pico' or 'pc')
 endif
 
 ifneq ($(STRIP),0)
@@ -32,19 +31,19 @@ endif
 
 BUILD_DIR := build/$(TARGET)
 OUT := $(BUILD_DIR)/plugin.so
-BUNDLE_SOURCE := oxynth.lv2
+BUNDLE_SOURCE := tine-piano.lv2
 PICOLV2_PATH ?= build/picolv2/$(TARGET)
-BUNDLE_DIR := $(PICOLV2_PATH)/oxynth.lv2
+BUNDLE_DIR := $(PICOLV2_PATH)/tine-piano.lv2
 
-.PHONY: all pico linux bundle install install-pico test clean info
+.PHONY: all pico pc bundle install install-pico test clean info
 
 all: $(OUT)
 
 pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP)
 
-linux:
-	$(MAKE) TARGET=linux STRIP=$(STRIP)
+pc:
+	$(MAKE) TARGET=pc STRIP=$(STRIP)
 
 bundle:
 	$(MAKE) TARGET=$(TARGET) STRIP=$(STRIP)
@@ -53,7 +52,7 @@ bundle:
 	cp $(OUT) $(BUNDLE_DIR)/plugin.so
 
 install:
-	$(MAKE) TARGET=linux STRIP=$(STRIP) bundle
+	$(MAKE) TARGET=pc STRIP=$(STRIP) bundle
 
 install-pico:
 	$(MAKE) TARGET=pico STRIP=$(STRIP) bundle
@@ -61,8 +60,8 @@ install-pico:
 SMOKE_TEST := ../../tools/lv2-smoke-test/smoke.c
 
 test: bundle $(SMOKE_TEST)
-	cc -std=c11 -Wall -Wextra -Werror -o build/linux/smoke $(SMOKE_TEST) -ldl -lm
-	LV2_PATH="$(CURDIR)" ./build/linux/smoke --require-release ./build/linux/plugin.so
+	cc -std=c11 -Wall -Wextra -Werror -o build/pc/smoke $(SMOKE_TEST) -ldl -lm
+	LV2_PATH="$(CURDIR)" ./build/pc/smoke --require-release --expect-frequency 440 ./build/pc/plugin.so
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)

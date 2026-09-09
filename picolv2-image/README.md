@@ -26,7 +26,7 @@ Ingen graph bundles (`.ingen` directories) can be created by
 Ingen, but see [this video](https://www.youtube.com/watch?v=eMj-q5adAZ4) to get
 an idea. Basically it allows you to connect up LV2 plugins, listen to the
 results on your computer, then export the plugin graph bundle (like
-[graphs/tine-piano-plus-delay.ingen](../graphs/tine-piano-plus-delay.ingen)).
+[patches/throwaway/tine-piano-plus-delay.ingen](../patches/throwaway/tine-piano-plus-delay.ingen)).
 
 You should be able to use it to create things like guitar effects chains and
 modular synthesizers.
@@ -64,41 +64,32 @@ At the time of writing the only plugins that will work are the ones in this
 repo:
 
 ```sh
-cd plugins
-make bundle
+cd plugins-src
+make install
 cd ..
 ```
 
-This creates plugin bundles under `plugins/build/picolv2/linux` and
-`plugins/build/picolv2/pico`.
+This creates plugin bundles under `plugins/pc` and `plugins/pico`.
 
-Individual plugins can also be installed directly under `PICOLV2_PATH`:
-
-```sh
-PICOLV2_PATH=$PWD/plugins/build/picolv2/pico \
-  make -C plugins/tine-piano install-pico
-PICOLV2_PATH=$PWD/plugins/build/picolv2/linux \
-  make -C plugins/tine-piano install
-```
-
-## 2.5 Convert the picolv2-firmware ELF to binary (optional)
-
-You probably don't need to do this as `picolv2-image` can now convert the raw
-ELF file itself. In case you want to do it manually for some reason:
+Probably you want to set a couple of environment variables to point to those
+locations:
 
 ```sh
-rust-objcopy -O binary \
-  picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
-  picolv2-firmware.bin
+LV2_PATH=$PWD/plugins/pc
+PICOLV2_PATH=$PWD/plugins/pico
 ```
+
+Those paths tell programs like Ingen and [picolv2-image](./) where to look for
+installed plugins. If at some point there are plugins built for the pico
+available from elsewhere, you can also drop them in the relevant folders.
 
 ## 3. Create the flash image
 
 ```sh
-PICOLV2_PATH=plugins/build/picolv2/pico \
+PICOLV2_PATH=plugins/pico \
 picolv2-image create \
   --firmware-elf picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
-  --ingen graphs/tine-piano-plus-delay.ingen \
+  --ingen patches/synths/mda_dx10.ingen \
   --output pico-image.bin
 ```
 
@@ -138,8 +129,8 @@ Plugin URIs must be unique and are resolved from `PICOLV2_PATH`; each bundle's
 locates the plugin TTL. Plugin metadata is parsed during image creation and
 stored as compact port records; invalid or unsupported port metadata fails the
 command. The bundle has a 512 KiB maximum size. `--ingen` accepts an Ingen graph
-bundle directory (e.g. `graphs/tine-piano-plus-delay.ingen`), reading its
-`manifest.ttl` to locate and parse the graph.
+bundle directory (e.g. `patches/throwaway/tine-piano-plus-delay.ingen`), reading
+its `manifest.ttl` to locate and parse the graph.
 
 ## Bonus: debugging with a debug probe and probe-rs
 
