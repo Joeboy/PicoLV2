@@ -13,15 +13,18 @@ format.
 
 ## Table of contents
 
-- [The Pico 2](#the-pico-2)
-- [Hardware wireup](#hardware-wireup)
-- [LV2](#lv2)
-- [Ingen](#ingen)
-- [Project Status](#project-status)
-- [Usage](#usage)
-- [TODO](#todo)
-- [Caveats and limitations](#caveats-and-limitations)
-- [AI declaration](#ai-declaration)
+- [PicoLV2](#picolv2)
+  - [LV2 plugins and Ingen patches on the Raspberry Pi Pico 2](#lv2-plugins-and-ingen-patches-on-the-raspberry-pi-pico-2)
+  - [Table of contents](#table-of-contents)
+  - [The Pico 2](#the-pico-2)
+  - [Hardware wireup](#hardware-wireup)
+  - [LV2](#lv2)
+  - [Ingen](#ingen)
+  - [Project Status](#project-status)
+  - [Usage](#usage)
+  - [TODO](#todo)
+  - [Caveats and limitations](#caveats-and-limitations)
+  - [AI declaration](#ai-declaration)
 
 ## The Pico 2
 
@@ -87,7 +90,7 @@ The "patch" format is Ingen.
 ![An Ingen patch](docs/images/ingen-example.png)
 
 I'm not 100% sure if that's the right choice. The format seems cool, but Ingen
-itself is a bit painful to use. I don't have any better ideas.
+itself is a bit painful to use. I should probably check out MOD pedalboard.
 
 In some cases a patch could just be a single LV2 plugin connected up to the
 input and output. It could also (at least in theory) be a full-on modular synth
@@ -110,10 +113,7 @@ I need to redo the documentation a bit, for now the best place to look is the
 
 ## TODO
 
-- Try porting more existing LV2 plugins. Hopefully some will work with minimal
-  changes, we'll see.
-- Provide some easy way to get a bunch of extant LV2 plugins from their home
-  repos into a "central" location.
+- Port more plugins
 - Audio input to the Pico (both hardware and software parts). Synths are nice
   but being able to do effects is the real goal.
 - At some point I'm going to have to figure out what to do about controls. Maybe
