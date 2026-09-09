@@ -4,6 +4,8 @@ AMS_LV2_REPOSITORY := git@github.com:Joeboy/ams-lv2.git
 MDA_LV2_REPOSITORY := git@github.com:Joeboy/mda-lv2.git
 
 PICOLV2_BUNDLE_ROOT ?= $(CURDIR)/build/picolv2
+MDA_EPIANO_RESAMPLING ?= 3
+MDA_PIANO_RESAMPLING ?= 4
 
 .PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 \
 	ams-lv2-pico ams-lv2-pc mda-lv2-pico mda-lv2-pc \
@@ -43,7 +45,9 @@ ams-lv2-pc: fetch-ams-lv2
 
 mda-lv2-pico: fetch-mda-lv2
 	@cd "$(CURDIR)/mda-lv2" && \
-		./waf configure --picolv2 --out=build/picolv2 \
+		./waf configure --picolv2 \
+			--epiano-resampling="$(MDA_EPIANO_RESAMPLING)" \
+			--piano-resampling="$(MDA_PIANO_RESAMPLING)" --out=build/picolv2 \
 			--lv2dir="$(PICOLV2_BUNDLE_ROOT)/pico" && \
 		./waf --out=build/picolv2 build && \
 		./waf --out=build/picolv2 install

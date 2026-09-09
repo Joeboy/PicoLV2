@@ -36,9 +36,19 @@ static uint32_t map_uri(void *handle, const char *uri) {
 }
 
 /* Build note-on and note-off events in the LV2 Atom Sequence buffer. */
-static void set_note(Sequence *sequence, uint32_t midi_urid) {
-    Event on = { .frames = 0, .body = { .size = 3, .type = midi_urid }, .midi = { 0x90, 69, 100 } };
-    Event off = { .frames = 2400, .body = { .size = 3, .type = midi_urid }, .midi = { 0x80, 69, 0 } };
+static void set_note(Sequence *sequence, uint32_t midi_urid, uint8_t note) {
+    Event on = { 0 };
+    Event off = { 0 };
+    on.body.size = 3;
+    on.body.type = midi_urid;
+    on.midi[0] = 0x90;
+    on.midi[1] = note;
+    on.midi[2] = 100;
+    off.frames = 2400;
+    off.body.size = 3;
+    off.body.type = midi_urid;
+    off.midi[0] = 0x80;
+    off.midi[1] = note;
     sequence->atom.type = 1;
     sequence->atom.size = 8 + sizeof(on) + sizeof(off);
     memcpy(sequence->data, &on, sizeof(on));
@@ -92,9 +102,13 @@ int main(int argc, char **argv) {
     if (!instance) return fprintf(stderr, "plugin failed to instantiate\n"), 1;
     Sequence sequence = { 0 };
     float output[4800] = { 0 };
-    set_note(&sequence, 2);
-    descriptor->connect(instance, 0, &sequence);
-    descriptor->connect(instance, 1, output);
+    float controls[12] = { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f,
+                           0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };
+    set_note(&sequence, 2, 127);
+    for (uint32_t port = 0; port < 12; ++port) descriptor->connect(instance, port, &controls[port]);
+    descriptor->connect(instance, 12, output);
+    descriptor->connect(instance, 13, output);
+    descriptor->connect(instance, 14, &sequence);
     descriptor->activate(instance);
     descriptor->run(instance, 4800);
 
@@ -124,9 +138,13 @@ int main(int argc, char **argv) {
     }
     Sequence sequence2 = { 0 };
     float output2[4800] = { 0 };
-    set_note(&sequence2, 2);
-    descriptor->connect(instance2, 0, &sequence2);
-    descriptor->connect(instance2, 1, output2);
+    float controls2[12] = { 0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f,
+                            0.5f, 0.5f, 0.5f, 0.5f, 0.5f, 0.5f };
+    set_note(&sequence2, 2, 127);
+    for (uint32_t port = 0; port < 12; ++port) descriptor->connect(instance2, port, &controls2[port]);
+    descriptor->connect(instance2, 12, output2);
+    descriptor->connect(instance2, 13, output2);
+    descriptor->connect(instance2, 14, &sequence2);
     descriptor->activate(instance2);
     descriptor->run(instance2, 4800);
     double energy2 = 0.0;
