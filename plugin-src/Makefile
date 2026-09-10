@@ -45,3 +45,4 @@ clean:
 	@for category in $(PLUGIN_CATEGORIES); do \
 		$(MAKE) -C $$category clean || exit 1; \
 	done
+	rm -rf $(PICOLV2_BUNDLE_ROOT)
