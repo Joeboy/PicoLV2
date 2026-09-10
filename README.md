@@ -22,8 +22,8 @@ format.
   - [Ingen](#ingen)
   - [Project Status](#project-status)
     - [TODO](#todo)
-  - [Usage](#usage)
   - [Caveats and limitations](#caveats-and-limitations)
+  - [Usage](#usage)
   - [AI declaration](#ai-declaration)
 
 ## The Pico 2
@@ -91,14 +91,16 @@ what the right answer is.
 
 The "patch" format is Ingen.
 
-![An Ingen patch](docs/images/ingen-example.png)
-
-I'm not 100% sure if that's the right choice. The format seems cool, but Ingen
-itself is a bit painful to use. I should probably check out MOD pedalboard.
+![An Ingen modular synthesis patch](docs/images/ingen-example.png)
 
 In some cases a patch could just be a single LV2 plugin connected up to the
 input and output. It could also (at least in theory) be a full-on modular synth
 patch with lots of nodes.
+
+I'm not 100% sure if Ingen is the right choice. The format seems cool, but Ingen
+itself is a bit painful to use. I also gave MOD PedalBoard a spin and didn't
+have a great time with that either. Maybe I need to add a new patch editor to
+the TODO list.
 
 ## Project Status
 
@@ -108,7 +110,7 @@ LV2 plugins using Ingen and flash the graph to your Pico with the
 
 ### TODO
 
-- Port more plugins
+- Port more plugins.
 - More patches. Both modular synths and effects chains.
 - Better docs.
 - Audio input to the Pico (both hardware and software parts). Synths are nice
@@ -124,11 +126,6 @@ LV2 plugins using Ingen and flash the graph to your Pico with the
 - General testing. Lots of testing.
 - Add overclocking support. I haven't really felt a need for it during my
   initial exploratory phase, but it'll obviously arise at some poin.
-
-## Usage
-
-I need to redo the documentation a bit, for now the best place to look is the
-[picolv2-image README](./picolv2-image).
 
 ## Caveats and limitations
 
@@ -148,6 +145,11 @@ Before you get too excited:
   They need to be built specially for PicoLV2. As of now there's just the few
   plugins ported by me. Other plugins will require an amount of work to get
   working with PicoLV2.
+
+## Usage
+
+I need to redo the documentation a bit, for now the best place to look is the
+[picolv2-image README](./picolv2-image).
 
 ## AI declaration
 
