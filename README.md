@@ -18,11 +18,11 @@ format.
   - [Table of contents](#table-of-contents)
   - [The Pico 2](#the-pico-2)
   - [Hardware wireup](#hardware-wireup)
-  - [LV2](#lv2)
+  - [LV2 plugins](#lv2-plugins)
   - [Ingen](#ingen)
   - [Project Status](#project-status)
+    - [TODO](#todo)
   - [Usage](#usage)
-  - [TODO](#todo)
   - [Caveats and limitations](#caveats-and-limitations)
   - [AI declaration](#ai-declaration)
 
@@ -64,19 +64,23 @@ ADC as well as the DAC.
 I like the idea that one day it might run on something a bit more suitable, like
 a beefier ARM board with integrated audio IO. I'm open to collab on this!
 
-## LV2
+## LV2 plugins
 
 I can't claim to be an expert on plugin formats, but [LV2](https://lv2plug.in/)
 seems very open and extensible, and I kind of know it already.
 
-There are lots of LV2 plugins out there. I'm hoping that at least some of the
-simpler effects plugins might just work with minimal changes. So far the only
-"real" plugin I've (kind of) ported is ams-lv2. There are some ad-hoc testing
-plugins in the [plugins/](plugins) folder, which I'll probably remove later.
+There are lots of LV2 plugins out there. I've made exploratory efforts at
+porting some of them and it seems quite promising. The mda piano / epiano were a
+bit problematic, I had to downsample the samples to get them to fit. The ams
+vco3 had to be optimized to run quickly enough, which theoretically could affect
+the sound (although I doubt it's noticeable). I haven't actually tested most of
+what I ported.
 
-At this point it's uncertain how practical it'll be to port existing LV2
-plugins. They're obviously intended for real computers and might be too heavy
-for the Pico. If that's the case we get to write specialized PicoLV2 plugins.
+Some plugins will be basically impossible to get working, in particular:
+
+- anything that needs more than 520Kb of SRAM, ie. long samples or delay lines
+- anything that can't be made to run fast enough
+- anything that doesn't make its source code available
 
 There's also an open question - if I fork a plugin and make it work with
 PicoLV2, should I use the same URID? It's _fundamentally_ the same plugin, but
@@ -102,18 +106,11 @@ It's still quite new but things seem to be working pretty well. You can hook up
 LV2 plugins using Ingen and flash the graph to your Pico with the
 [firmware](./picolv2-firmware/) to play / hear the result.
 
-The next thing is to port more LV2 plugins for the Pico. There's currently just
-the few toy ones under [./plugins/](plugins/), and my
-[ams-lv2 port](https://github.com/Joeboy/ams-lv2/tree/picolv2-build).
-
-## Usage
-
-I need to redo the documentation a bit, for now the best place to look is the
-[picolv2-image README](./picolv2-image).
-
-## TODO
+### TODO
 
 - Port more plugins
+- More patches. Both modular synths and effects chains.
+- Better docs.
 - Audio input to the Pico (both hardware and software parts). Synths are nice
   but being able to do effects is the real goal.
 - At some point I'm going to have to figure out what to do about controls. Maybe
@@ -125,7 +122,13 @@ I need to redo the documentation a bit, for now the best place to look is the
 - At some point I should make there be downloadable binaries for the firmware,
   `picolv2-image` and the plugins. I guess Github actions.
 - General testing. Lots of testing.
-- More patches. Both modular synths and effects chains.
+- Add overclocking support. I haven't really felt a need for it during my
+  initial exploratory phase, but it'll obviously arise at some poin.
+
+## Usage
+
+I need to redo the documentation a bit, for now the best place to look is the
+[picolv2-image README](./picolv2-image).
 
 ## Caveats and limitations
 
@@ -139,15 +142,12 @@ Before you get too excited:
   your computer runs.
 - The Pico 2 is puny compared to regular computers, so a lot of plugins probably
   won't run properly.
-- Currently no audio in, and getting audio out requires some relatively easy
+- Currently no audio in, and getting audio out requires some (relatively easy)
   soldering.
 - Don't expect to be able to download and use regular LV2 plugins on the Pico.
   They need to be built specially for PicoLV2. As of now there's just the few
-  plugins in this repo. Other plugins will require an amount of work to get
-  working with PicoLV2. I haven't explored that much yet, I expect it to vary
-  between trivial and basically impossible depending on the plugin. In
-  particular anything that's not open source is in the "basically impossible"
-  category.
+  plugins ported by me. Other plugins will require an amount of work to get
+  working with PicoLV2.
 
 ## AI declaration
 
