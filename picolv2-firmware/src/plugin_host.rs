@@ -173,7 +173,10 @@ impl PluginInstance {
 /// through the audio processing pipeline.
 pub struct PluginHost {
     nodes: Vec<PluginNode>,
-    output_node: usize,
+    // (node index, lv2 port index) of the graph's left/mono and right audio
+    // outputs, resolved from the graph's declared output ports.
+    left_output: (usize, u32),
+    right_output: (usize, u32),
     control_to_cv_bridges: Vec<ControlToCvBridge>,
     midi_consumer: Consumer<'static, MidiEvent>,
     pending_midi: Option<MidiEvent>,
@@ -211,14 +214,15 @@ impl PluginHost {
             let binary = if let Some(pos) = binaries.iter().position(|(uri, _)| *uri == node_uri) {
                 info!(
                     "graph node {} uri={} reusing loaded binary",
-                    node_index, node_uri
+                    node_index,
+                    core::str::from_utf8(node_uri).unwrap_or("<invalid utf8>")
                 );
                 &binaries[pos].1
             } else {
                 info!(
                     "graph node {} uri={} binary_bytes={} metadata_bytes={}",
                     node_index,
-                    node_uri,
+                    core::str::from_utf8(node_uri).unwrap_or("<invalid utf8>"),
                     entry.binary.len(),
                     entry.metadata.len()
                 );
@@ -430,20 +434,29 @@ impl PluginHost {
                 _ => panic!("graph edge connects incompatible ports"),
             }
         }
-        let mut has_outgoing = alloc::vec![false; nodes.len()];
-        for edge_index in 0..graph.edge_count {
-            has_outgoing[graph.edge(edge_index).unwrap().source_node as usize] = true;
-        }
-        let output_node = (0..nodes.len())
-            .rev()
-            .find(|index| !has_outgoing[*index])
-            .expect("graph has no output");
+        // The graph's declared output ports (e.g. Ingen's `audio_out_1`/
+        // `audio_out_2`) tell us exactly which node/port feeds the left and
+        // right channels, rather than guessing from the node topology.
+        let output = |output_index: u16| -> (usize, u32) {
+            let output = graph
+                .output(output_index)
+                .expect("invalid graph output");
+            (output.node as usize, output.port as u32)
+        };
+        assert!(graph.output_count > 0, "graph has no audio output");
+        let left_output = output(0);
+        let right_output = if graph.output_count > 1 {
+            output(1)
+        } else {
+            left_output
+        };
 
         #[cfg(feature = "perf-diagnostics")]
         let node_micros = alloc::vec![0u64; nodes.len()];
         Self {
             nodes,
-            output_node,
+            left_output,
+            right_output,
             control_to_cv_bridges,
             midi_consumer,
             pending_midi: None,
@@ -505,17 +518,25 @@ impl PluginHost {
                 unsafe { (*bridge.destination).fill(value) };
             }
         }
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                self.nodes[self.output_node]
-                    .audio_outputs
-                    .first()
-                    .expect("output node has no audio output port")
-                    .1
-                    .as_ptr(),
-                output,
-                BLOCK_SIZE,
-            );
+        let (left_node, left_port) = self.left_output;
+        let (right_node, right_port) = self.right_output;
+        let left = self.nodes[left_node]
+            .audio_outputs
+            .iter()
+            .find(|(port, _)| *port == left_port)
+            .map(|(_, buffer)| buffer.as_ref())
+            .expect("left output port is not connected");
+        let right = self.nodes[right_node]
+            .audio_outputs
+            .iter()
+            .find(|(port, _)| *port == right_port)
+            .map(|(_, buffer)| buffer.as_ref())
+            .expect("right output port is not connected");
+        for sample_index in 0..BLOCK_SIZE {
+            unsafe {
+                *output.add(sample_index * 2) = left[sample_index];
+                *output.add(sample_index * 2 + 1) = right[sample_index];
+            }
         }
 
         self.block_start_frame += BLOCK_SIZE as u64;

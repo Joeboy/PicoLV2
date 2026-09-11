@@ -10,6 +10,8 @@ const INGEN_HEAD: &str = "http://drobilla.net/ns/ingen#head";
 const LV2_PROTOTYPE: &str = "http://lv2plug.in/ns/lv2core#prototype";
 const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
 const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
+const LV2_AUDIO_PORT: &str = "http://lv2plug.in/ns/lv2core#AudioPort";
+const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
 const INGEN_VALUE: &str = "http://drobilla.net/ns/ingen#value";
 const RDFS_SEE_ALSO: &str = "http://www.w3.org/2000/01/rdf-schema#seeAlso";
 
@@ -99,16 +101,39 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
     };
 
     let mut raw_edges = Vec::new();
-    for (tail, head) in arcs {
-        if let (Some(src), Some(dst)) = (find_block(&tail), find_block(&head)) {
+    for (tail, head) in &arcs {
+        if let (Some(src), Some(dst)) = (find_block(tail), find_block(head)) {
             if src != dst {
-                raw_edges.push((src, port_index(&tail)?, dst, port_index(&head)?));
+                raw_edges.push((src, port_index(tail)?, dst, port_index(head)?));
             }
         }
     }
     raw_edges.sort();
     raw_edges.dedup();
 
+    // Arcs whose head is one of the graph's own exposed ports (e.g. Ingen's
+    // `audio_out_1`/`audio_out_2`) rather than another block's input,
+    // recording which block/port feeds each externally-visible audio output.
+    let is_audio_output_port = |port: &str| -> bool {
+        triples
+            .iter()
+            .any(|t| t.subject == port && t.predicate == RDF_TYPE && t.object == LV2_AUDIO_PORT)
+            && triples
+                .iter()
+                .any(|t| t.subject == port && t.predicate == RDF_TYPE && t.object == LV2_OUTPUT_PORT)
+    };
+    let mut graph_outputs = Vec::new();
+    for (tail, head) in &arcs {
+        if find_block(head).is_some() || !is_audio_output_port(head) {
+            continue;
+        }
+        let Some(src) = find_block(tail) else {
+            continue;
+        };
+        graph_outputs.push((port_index(head)?, src, port_index(tail)?));
+    }
+    graph_outputs.sort();
+    graph_outputs.dedup();
     let num_blocks = blocks.len();
     let mut in_degree = vec![0usize; num_blocks];
     let mut adjacency = vec![Vec::new(); num_blocks];
@@ -159,6 +184,11 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
     edges.sort();
     edges.dedup();
 
+    let outputs: Vec<(usize, u8)> = graph_outputs
+        .into_iter()
+        .map(|(_, src, source_port)| (old_to_new[src], source_port))
+        .collect();
+
     let mut result = Vec::new();
     result.extend_from_slice(picolv2_image_format::GRAPH_MAGIC);
     result.extend_from_slice(&picolv2_image_format::GRAPH_VERSION.to_le_bytes());
@@ -179,6 +209,11 @@ pub fn compile(path: &str) -> Result<Vec<u8>, String> {
         result.extend_from_slice(&[source_port, 0]);
         result.extend_from_slice(&(destination as u16).to_le_bytes());
         result.extend_from_slice(&[destination_port, 0]);
+    }
+    result.extend_from_slice(&(outputs.len() as u16).to_le_bytes());
+    for (node, port) in outputs {
+        result.extend_from_slice(&(node as u16).to_le_bytes());
+        result.extend_from_slice(&[port, 0]);
     }
     Ok(result)
 }

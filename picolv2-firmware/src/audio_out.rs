@@ -7,9 +7,9 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIN_18, PIN_19, PIN_20, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use {defmt_rtt as _, panic_probe as _};
 
-use crate::audio_buffer::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
 #[cfg(feature = "perf-diagnostics")]
 use crate::audio_buffer::REPORT_BLOCKS;
+use crate::audio_buffer::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
 use crate::i2s_ping_pong::{PioI2sOut, PioI2sOutProgram};
 use heapless::spsc::{Consumer, Producer};
 
@@ -77,9 +77,11 @@ pub async fn audio_task(
         if let Some(index) = ready_consumer.dequeue() {
             let samples = unsafe { block_ptr(index) };
             for (sample_index, word) in buf.iter_mut().enumerate() {
-                let sample = unsafe { samples.add(sample_index).read() };
-                let pcm = (sample * i16::MAX as f32) as i16;
-                *word = pack_lr_16(pcm, pcm);
+                let left = unsafe { samples.add(sample_index * 2).read() };
+                let right = unsafe { samples.add(sample_index * 2 + 1).read() };
+                let left_pcm = (left * i16::MAX as f32) as i16;
+                let right_pcm = (right * i16::MAX as f32) as i16;
+                *word = pack_lr_16(left_pcm, right_pcm);
             }
             free_producer
                 .enqueue(index)

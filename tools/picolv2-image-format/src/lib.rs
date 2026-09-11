@@ -5,7 +5,7 @@ pub const VERSION: u32 = 2;
 pub const FLASH_ADDRESS: usize = 0x1018_0000;
 pub const MAX_SIZE: usize = 512 * 1024;
 pub const GRAPH_MAGIC: &[u8; 8] = b"PICO GRP";
-pub const GRAPH_VERSION: u32 = 2;
+pub const GRAPH_VERSION: u32 = 3;
 pub const METADATA_MAGIC: &[u8; 8] = b"PICO MET";
 pub const METADATA_VERSION: u32 = 1;
 const HEADER_SIZE: usize = 20;
@@ -14,6 +14,8 @@ const METADATA_HEADER_SIZE: usize = 16;
 const METADATA_PORT_SIZE: usize = 12;
 /// Size in bytes of a single node port-value override record.
 const OVERRIDE_SIZE: usize = 6;
+/// Size in bytes of a single graph output record (node:u16, port:u8, pad:u8).
+const OUTPUT_SIZE: usize = 4;
 
 #[cfg(test)]
 extern crate std;
@@ -43,6 +45,9 @@ pub struct Graph<'a> {
     bytes: &'a [u8],
     pub node_count: u16,
     pub edge_count: u16,
+    // Graph-level audio outputs (e.g. Ingen's `audio_out_1`/`audio_out_2`),
+    // in port order: index 0 is the left/mono channel, index 1 is right.
+    pub output_count: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -74,6 +79,12 @@ pub struct Edge {
     pub source_port: u8,
     pub destination_node: u16,
     pub destination_port: u8,
+}
+
+#[derive(Clone, Copy)]
+pub struct Output {
+    pub node: u16,
+    pub port: u8,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -213,13 +224,10 @@ impl<'a> Graph<'a> {
         {
             return Err(());
         }
-        let graph = Self {
-            bytes,
-            node_count: read_u16(bytes, 12).ok_or(())?,
-            edge_count: read_u16(bytes, 14).ok_or(())?,
-        };
+        let node_count = read_u16(bytes, 12).ok_or(())?;
+        let edge_count = read_u16(bytes, 14).ok_or(())?;
         let mut offset = 16usize;
-        for _ in 0..graph.node_count {
+        for _ in 0..node_count {
             let uri_length = read_u16(bytes, offset).ok_or(())? as usize;
             let override_count = read_u16(bytes, offset + 2).ok_or(())? as usize;
             offset = offset
@@ -231,12 +239,42 @@ impl<'a> Graph<'a> {
                 .ok_or(())?;
         }
         offset = offset
-            .checked_add(graph.edge_count as usize * 8)
+            .checked_add(edge_count as usize * 8)
+            .ok_or(())?;
+        let output_count = read_u16(bytes, offset).ok_or(())?;
+        offset = offset
+            .checked_add(2)
+            .ok_or(())?
+            .checked_add(output_count as usize * OUTPUT_SIZE)
             .ok_or(())?;
         if offset != bytes.len() {
             return Err(());
         }
-        Ok(graph)
+        Ok(Self {
+            bytes,
+            node_count,
+            edge_count,
+            output_count,
+        })
+    }
+
+    /// Offset of the first byte after the node section (i.e. where the edge
+    /// records begin).
+    fn edges_offset(&self) -> Result<usize, ()> {
+        let mut offset = 16usize;
+        for index in 0..self.node_count {
+            let uri_length = read_u16(self.bytes, offset).ok_or(())? as usize;
+            let override_count = read_u16(self.bytes, offset + 2).ok_or(())? as usize;
+            offset = offset
+                .checked_add(4)
+                .ok_or(())?
+                .checked_add(uri_length)
+                .ok_or(())?
+                .checked_add(override_count.checked_mul(OVERRIDE_SIZE).ok_or(())?)
+                .ok_or(())?;
+            let _ = index;
+        }
+        Ok(offset)
     }
 
     pub fn node(&self, requested_index: u16) -> Result<Node<'a>, ()> {
@@ -261,24 +299,29 @@ impl<'a> Graph<'a> {
     }
 
     pub fn edge(&self, requested_index: u16) -> Result<Edge, ()> {
-        let mut offset = 16usize;
-        for _ in 0..self.node_count {
-            let uri_length = read_u16(self.bytes, offset).ok_or(())? as usize;
-            let override_count = read_u16(self.bytes, offset + 2).ok_or(())? as usize;
-            offset = offset
-                .checked_add(4)
-                .ok_or(())?
-                .checked_add(uri_length)
-                .ok_or(())?
-                .checked_add(override_count.checked_mul(OVERRIDE_SIZE).ok_or(())?)
-                .ok_or(())?;
-        }
+        let offset = self.edges_offset()?;
         let edge_offset = offset.checked_add(requested_index as usize * 8).ok_or(())?;
         Ok(Edge {
             source_node: read_u16(self.bytes, edge_offset).ok_or(())?,
             source_port: *self.bytes.get(edge_offset + 2).ok_or(())?,
             destination_node: read_u16(self.bytes, edge_offset + 4).ok_or(())?,
             destination_port: *self.bytes.get(edge_offset + 6).ok_or(())?,
+        })
+    }
+
+    pub fn output(&self, requested_index: u16) -> Result<Output, ()> {
+        let offset = self
+            .edges_offset()?
+            .checked_add(self.edge_count as usize * 8)
+            .ok_or(())?
+            .checked_add(2) // skip output_count
+            .ok_or(())?;
+        let output_offset = offset
+            .checked_add(requested_index as usize * OUTPUT_SIZE)
+            .ok_or(())?;
+        Ok(Output {
+            node: read_u16(self.bytes, output_offset).ok_or(())?,
+            port: *self.bytes.get(output_offset + 2).ok_or(())?,
         })
     }
 }
@@ -396,7 +439,7 @@ mod tests {
         let mut bytes = Vec::from(*MAGIC);
         bytes.extend_from_slice(&VERSION.to_le_bytes());
         bytes.extend_from_slice(&1u32.to_le_bytes());
-        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&18u32.to_le_bytes());
         bytes.extend_from_slice(&3u16.to_le_bytes());
         bytes.extend_from_slice(&[0, 0]);
         bytes.extend_from_slice(&2u32.to_le_bytes());
@@ -404,6 +447,7 @@ mod tests {
         bytes.extend_from_slice(b"uriBITTL");
         bytes.extend_from_slice(GRAPH_MAGIC);
         bytes.extend_from_slice(&GRAPH_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
 
@@ -425,9 +469,10 @@ mod tests {
         let mut bytes = Vec::from(*MAGIC);
         bytes.extend_from_slice(&VERSION.to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
-        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&18u32.to_le_bytes());
         bytes.extend_from_slice(GRAPH_MAGIC);
         bytes.extend_from_slice(&GRAPH_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&[0xff; 128]);
@@ -451,6 +496,7 @@ mod tests {
         bytes.extend_from_slice(&[0, 0]);
         bytes.extend_from_slice(&1u16.to_le_bytes());
         bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&0u16.to_le_bytes());
 
         let graph = Graph::parse(&bytes).unwrap();
         let edge = graph.edge(0).unwrap();
@@ -458,6 +504,33 @@ mod tests {
         assert_eq!(edge.destination_node, 1);
         assert_eq!(edge.source_port, 0);
         assert_eq!(edge.destination_port, 0);
+    }
+
+    #[test]
+    fn parses_output_fields() {
+        let mut bytes = Vec::from(*GRAPH_MAGIC);
+        bytes.extend_from_slice(&GRAPH_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        for uri in [b"left".as_slice(), b"right".as_slice()] {
+            bytes.extend_from_slice(&(uri.len() as u16).to_le_bytes());
+            bytes.extend_from_slice(&[0, 0]);
+            bytes.extend_from_slice(uri);
+        }
+        bytes.extend_from_slice(&2u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&[1, 0]);
+
+        let graph = Graph::parse(&bytes).unwrap();
+        assert_eq!(graph.output_count, 2);
+        let left = graph.output(0).unwrap();
+        assert_eq!(left.node, 0);
+        assert_eq!(left.port, 0);
+        let right = graph.output(1).unwrap();
+        assert_eq!(right.node, 1);
+        assert_eq!(right.port, 1);
     }
 
     #[test]
