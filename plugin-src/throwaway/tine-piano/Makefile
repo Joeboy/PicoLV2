@@ -7,12 +7,12 @@ RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libtine_piano.a
 LINKER := arm-none-eabi-gcc
 READELF := arm-none-eabi-readelf
 MCPU := -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
-# malloc/calloc/free/realloc (in pico-alloc.c) resolve picolv2_alloc/
+# malloc/calloc/free/realloc (in picolv2lib.c) resolve picolv2_alloc/
 # picolv2_dealloc against picolv2-firmware's tracked heap at load time, so
 # they stay undefined here.
 LDFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,--gc-sections -Wl,-z,noexecstack -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
-EXTRA_SRC := ../../lib/pico-alloc.c
+EXTRA_SRC := ../../lib/picolv2lib.c
 else ifeq ($(TARGET),pc)
 CARGO_TARGET := x86_64-unknown-linux-gnu
 RUST_ARCHIVE := target/$(CARGO_TARGET)/release/libtine_piano.a

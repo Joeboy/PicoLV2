@@ -20,7 +20,7 @@ LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0
 # after the object file on the link line so `ld` sees the undefined symbols
 # it needs to satisfy before searching the archive.
 LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
-EXTRA_SRC := ../../lib/pico-alloc.c
+EXTRA_SRC := ../../lib/picolv2lib.c
 else ifeq ($(TARGET),pc)
 CC := gcc
 READELF := readelf

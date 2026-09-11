@@ -17,7 +17,7 @@ CFLAGS := $(MCPU) -fPIC -ffreestanding -fno-builtin -Wall -Wextra -O2
 # picolv2-firmware's tracked heap at load time, so they stay undefined here.
 LDFLAGS := -shared -nostdlib -Wl,-Bsymbolic -Wl,-z,undefs -Wl,-z,max-page-size=0x1000 -Wl,--no-warnings
 LDLIBS := -lgcc -Wl,--start-group -lc -lm -lnosys -Wl,--end-group
-EXTRA_SRC := ../../lib/pico-alloc.c
+EXTRA_SRC := ../../lib/picolv2lib.c
 else ifeq ($(TARGET),pc)
 CC := gcc
 READELF := readelf
