@@ -4,70 +4,30 @@ use embassy_rp::Peri;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_time::Instant;
-use embassy_usb_driver::host::pipe;
-use embassy_usb_driver::host::{DeviceEvent, PipeError, UsbHostAllocator, UsbPipe};
-use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
-use embassy_usb_host::descriptor::ConfigurationDescriptorChain;
-use embassy_usb_host::handler::{BusRoute, EnumerationInfo, RegisterError};
+use embassy_usb_driver::host::DeviceEvent;
+use embassy_usb_host::class::midi::{MidiHost, event_packets};
+use embassy_usb_host::handler::BusRoute;
 use embassy_usb_host::{BusState, bus};
 use heapless::spsc::Producer;
 
 use crate::midi::MidiEvent;
 
 const MAX_DESCRIPTOR_SIZE: usize = 512;
+// A handful of complete 4-byte USB-MIDI event packets per bulk transfer.
+const MIDI_TRANSFER_BUFFER_SIZE: usize = 64;
 static USB_BUS_STATE: BusState = BusState::new();
 
-struct MidiHandler<'d, A: UsbHostAllocator<'d>> {
-    bulk_in: A::Pipe<pipe::Bulk, pipe::In>,
-}
-
-impl<'d, A: UsbHostAllocator<'d>> MidiHandler<'d, A> {
-    fn try_register(
-        bus: &A,
-        enum_info: &EnumerationInfo,
-        configuration: &ConfigurationDescriptorChain<'_>,
-    ) -> Result<Self, RegisterError> {
-        let interface = configuration
-            .iter_interface()
-            .find(|interface| {
-                interface.interface_class == 0x01
-                    && interface.interface_subclass == 0x03
-                    && interface.interface_protocol == 0x00
-            })
-            .ok_or(RegisterError::NoSupportedInterface)?;
-
-        let endpoint = interface
-            .iter_endpoints()
-            .find(|endpoint| {
-                endpoint.ep_type() == EndpointType::Bulk && endpoint.ep_dir() == Direction::In
-            })
-            .ok_or(RegisterError::NoSupportedInterface)?;
-
-        let endpoint: EndpointInfo = endpoint.into();
-        let bulk_in = bus.alloc_pipe::<pipe::Bulk, pipe::In>(
-            enum_info.device_address,
-            &endpoint,
-            enum_info.split(),
-        )?;
-
-        Ok(Self { bulk_in })
+fn midi_event(data: &[u8], timestamp_micros: u64) -> Option<MidiEvent> {
+    if data.len() < 3 {
+        return None;
     }
-
-    async fn read_packet(&mut self) -> Result<[u8; 4], PipeError> {
-        let mut packet = [0u8; 4];
-        self.bulk_in.request_in(&mut packet).await?;
-        Ok(packet)
-    }
-}
-
-fn midi_event(packet: [u8; 4], timestamp_micros: u64) -> Option<MidiEvent> {
-    let status = packet[1];
+    let status = data[0];
 
     match status & 0xf0 {
         0x80 | 0x90 | 0xb0 => Some(MidiEvent {
             status,
-            data1: packet[2],
-            data2: packet[3],
+            data1: data[1],
+            data2: data[2],
             _reserved: 0,
             timestamp_micros,
         }),
@@ -104,18 +64,7 @@ pub async fn usb_midi_task(
             }
         };
 
-        let configuration = match ConfigurationDescriptorChain::try_from_slice(
-            &descriptor_buffer[..descriptor_len],
-        ) {
-            Ok(configuration) => configuration,
-            Err(error) => {
-                warn!("Invalid USB configuration descriptor: {:?}", error);
-                bus.free_address(enum_info.device_address);
-                continue;
-            }
-        };
-
-        let mut midi = match MidiHandler::try_register(&bus, &enum_info, &configuration) {
+        let mut midi = match MidiHost::new(&bus, &descriptor_buffer[..descriptor_len], &enum_info) {
             Ok(midi) => midi,
             Err(error) => {
                 warn!(
@@ -127,16 +76,40 @@ pub async fn usb_midi_task(
             }
         };
 
+        if midi.input_ports().is_empty() {
+            warn!("MIDI device has no input ports");
+            bus.free_address(enum_info.device_address);
+            continue;
+        }
+
         info!("USB MIDI input ready");
+        let mut transfer_buffer = [0u8; MIDI_TRANSFER_BUFFER_SIZE];
         loop {
-            match select(midi.read_packet(), controller.wait_for_device_event()).await {
-                Either::First(Ok(packet)) => {
-                    if let Some(event) = midi_event(packet, Instant::now().as_micros()) {
-                        if producer.enqueue(event).is_err() {
-                            warn!("MIDI queue full; dropping event");
+            match select(
+                midi.read_transfer(&mut transfer_buffer),
+                controller.wait_for_device_event(),
+            )
+            .await
+            {
+                Either::First(Ok(len)) => {
+                    let packets = match event_packets(&transfer_buffer[..len]) {
+                        Ok(packets) => packets,
+                        Err(error) => {
+                            debug!("Ignored malformed USB-MIDI transfer: {:?}", error);
+                            continue;
                         }
-                    } else {
-                        debug!("Ignoring USB MIDI packet: {=[u8]:x}", &packet[..]);
+                    };
+                    for packet in packets {
+                        let Some(data) = packet.data() else {
+                            continue;
+                        };
+                        if let Some(event) = midi_event(data, Instant::now().as_micros()) {
+                            if producer.enqueue(event).is_err() {
+                                warn!("MIDI queue full; dropping event");
+                            }
+                        } else {
+                            debug!("Ignoring USB MIDI packet: {=[u8]:x}", data);
+                        }
                     }
                 }
                 Either::First(Err(error)) => {
