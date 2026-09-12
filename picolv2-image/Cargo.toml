@@ -4,9 +4,15 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = []
+gui = ["dep:eframe", "dep:rfd"]
+
 [dependencies]
 goblin = "0.10.5"
 picolv2-image-format = { path = "../tools/picolv2-image-format" }
 rio_api = "0.8.5"
 rio_turtle = "0.8.5"
 oxiri = "0.2.11"
+eframe = { version = "0.31", optional = true }
+rfd = { version = "0.15", optional = true }

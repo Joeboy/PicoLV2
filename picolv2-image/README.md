@@ -50,13 +50,25 @@ cd ..
 
 #### Build picolv2-image utility
 
+CLI version (default):
+
 ```sh
 cd picolv2-image
 cargo build --release
 cd ..
 ```
 
-the rest of this README assumes `picolv2-image` is on your PATH.
+GUI version:
+
+```sh
+cd picolv2-image
+cargo build --release --features gui
+cd ..
+```
+
+The rest of this README assumes `picolv2-image` is on your PATH.
+
+When built with `--features gui`, running `picolv2-image` without arguments opens the graphical interface. You can select the firmware file, `.ingen` patch folder, output format (`.uf2` by default or raw image), and click "Generate UF2 Image".
 
 #### Build the plugins
 
@@ -64,7 +76,7 @@ At the time of writing the only plugins that will work are the ones in this
 repo:
 
 ```sh
-cd plugins-src
+cd plugin-src
 make install
 cd ..
 ```
@@ -120,7 +132,6 @@ probe-rs download \
   --base-address 0x10000000 \
   --verify \
   pico-image.bin && \
-sleep 3 && \
 probe-rs reset --chip RP235x
 ```
 
