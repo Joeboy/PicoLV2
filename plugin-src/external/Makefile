@@ -8,6 +8,8 @@ MIDIFILTER_LV2_REPOSITORY := git@github.com:Joeboy/midifilter.lv2.git
 PICOLV2_BUNDLE_ROOT ?= $(CURDIR)/build/picolv2
 MDA_EPIANO_RESAMPLING ?= 3
 MDA_PIANO_RESAMPLING ?= 4
+MIDIFILTER_PICO_STRIP := $(if $(filter 0,$(STRIP)),true,arm-none-eabi-strip)
+MIDIFILTER_PC_STRIP := $(if $(filter 0,$(STRIP)),true,strip)
 
 .PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 \
 	ams-lv2-pico ams-lv2-pc mda-lv2-pico mda-lv2-pc swh-lv2-pico swh-lv2-pc \
@@ -90,15 +92,15 @@ swh-lv2-pc: fetch-swh-lv2
 
 midifilter-lv2-pico: fetch-midifilter-lv2
 	@cd "$(CURDIR)/midifilter.lv2" && \
-		$(MAKE) PICOLV2=1 clean && \
-		$(MAKE) PICOLV2=1 all && \
-		$(MAKE) PICOLV2=1 install LV2DIR="$(PICOLV2_BUNDLE_ROOT)/pico"
+		$(MAKE) PICOLV2=1 STRIP=$(MIDIFILTER_PICO_STRIP) clean && \
+		$(MAKE) PICOLV2=1 STRIP=$(MIDIFILTER_PICO_STRIP) all && \
+		$(MAKE) PICOLV2=1 STRIP=$(MIDIFILTER_PICO_STRIP) install LV2DIR="$(PICOLV2_BUNDLE_ROOT)/pico"
 
 midifilter-lv2-pc: fetch-midifilter-lv2
 	@cd "$(CURDIR)/midifilter.lv2" && \
-		$(MAKE) clean && \
-		$(MAKE) all && \
-		$(MAKE) install LV2DIR="$(PICOLV2_BUNDLE_ROOT)/pc"
+		$(MAKE) STRIP=$(MIDIFILTER_PC_STRIP) clean && \
+		$(MAKE) STRIP=$(MIDIFILTER_PC_STRIP) all && \
+		$(MAKE) STRIP=$(MIDIFILTER_PC_STRIP) install LV2DIR="$(PICOLV2_BUNDLE_ROOT)/pc"
 
 pico: ams-lv2-pico mda-lv2-pico swh-lv2-pico midifilter-lv2-pico
 
