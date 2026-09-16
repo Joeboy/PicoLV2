@@ -104,6 +104,10 @@ pub async fn usb_midi_task(
                             continue;
                         };
                         if let Some(event) = midi_event(data, Instant::now().as_micros()) {
+                            debug!(
+                                "USB MIDI event status={} data1={} data2={}",
+                                event.status, event.data1, event.data2
+                            );
                             if producer.enqueue(event).is_err() {
                                 warn!("MIDI queue full; dropping event");
                             }

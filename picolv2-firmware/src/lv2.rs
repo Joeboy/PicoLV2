@@ -29,9 +29,9 @@ pub struct Lv2Descriptor {
         features: *const *const Lv2Feature,
     ) -> *mut c_void,
     pub connect_port: extern "C" fn(instance: *mut c_void, port: u32, data: *mut c_void),
-    pub activate: extern "C" fn(instance: *mut c_void),
+    pub activate: Option<extern "C" fn(instance: *mut c_void)>,
     pub run: extern "C" fn(instance: *mut c_void, n_samples: u32),
-    pub deactivate: extern "C" fn(instance: *mut c_void),
+    pub deactivate: Option<extern "C" fn(instance: *mut c_void)>,
     pub cleanup: extern "C" fn(instance: *mut c_void),
-    pub extension_data: extern "C" fn(extension_data: *const c_char) -> *const c_void,
+    pub extension_data: Option<extern "C" fn(extension_data: *const c_char) -> *const c_void>,
 }

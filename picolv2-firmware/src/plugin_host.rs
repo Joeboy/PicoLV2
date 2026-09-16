@@ -1,8 +1,9 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::ffi::{CStr, c_char, c_void};
+use core::mem::size_of;
 
-use defmt::info;
+use defmt::{debug, info};
 use elf_loader::{
     Loader, Relocator,
     image::{SyntheticModule, SyntheticSymbol},
@@ -13,18 +14,18 @@ use embassy_time::Instant;
 use heapless::spsc::{Consumer, Producer};
 use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE, PluginMetadata, PortKind};
 
+#[cfg(feature = "perf-diagnostics")]
+use crate::audio_buffer::REPORT_BLOCKS;
 use crate::audio_buffer::{
     AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE, block_mut_ptr,
 };
-#[cfg(feature = "perf-diagnostics")]
-use crate::audio_buffer::REPORT_BLOCKS;
 use crate::host_hooks::HOST_SYMBOLS;
 use crate::log_heap;
 use crate::lv2::{
     ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap, MIDI_EVENT_URI,
     MIDI_EVENT_URID, URID_MAP_URI,
 };
-use crate::midi::{Lv2MidiSequence, MidiEvent};
+use crate::midi::{Lv2AtomSequenceBody, Lv2MidiSequence, MidiEvent};
 
 static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
 
@@ -60,7 +61,7 @@ pub struct PluginBinary {
 }
 
 impl PluginBinary {
-    pub fn load(name: &str, elf_bytes: &[u8]) -> Self {
+    pub fn load(name: &str, elf_bytes: &[u8], plugin_uri: &[u8]) -> Self {
         info!(
             "plugin load begin name={} elf_bytes={}",
             name,
@@ -91,7 +92,21 @@ impl PluginBinary {
             lib.get::<extern "C" fn(u32) -> *const Lv2Descriptor>("lv2_descriptor")
                 .expect("symbol `lv2_descriptor` not found")
         };
-        let descriptor: &'static Lv2Descriptor = unsafe { &*lv2_descriptor(0) };
+        let mut descriptor_index = 0;
+        let descriptor: &'static Lv2Descriptor = loop {
+            let candidate = lv2_descriptor(descriptor_index);
+            assert!(
+                !candidate.is_null(),
+                "plugin binary does not contain the requested LV2 descriptor"
+            );
+            let candidate = unsafe { &*candidate };
+            assert!(!candidate.uri.is_null(), "LV2 descriptor has a null URI");
+            if unsafe { CStr::from_ptr(candidate.uri) }.to_bytes() == plugin_uri {
+                break candidate;
+            }
+            descriptor_index += 1;
+        };
+        info!("selected LV2 descriptor index={}", descriptor_index);
 
         // Keep the relocated ELF resident in memory for the lifetime of the firmware
         core::mem::forget(lib);
@@ -158,7 +173,9 @@ impl PluginInstance {
     }
 
     pub fn activate(&mut self) {
-        (self.descriptor.activate)(self.handle);
+        if let Some(activate) = self.descriptor.activate {
+            activate(self.handle);
+        }
     }
 
     pub fn run(&mut self, sample_count: u32) {
@@ -167,7 +184,9 @@ impl PluginInstance {
 
     #[allow(dead_code)]
     pub fn deactivate(&mut self) {
-        (self.descriptor.deactivate)(self.handle);
+        if let Some(deactivate) = self.descriptor.deactivate {
+            deactivate(self.handle);
+        }
     }
 }
 
@@ -228,7 +247,7 @@ impl PluginHost {
                     entry.binary.len(),
                     entry.metadata.len()
                 );
-                let binary = PluginBinary::load("graph-plugin.so", entry.binary);
+                let binary = PluginBinary::load("graph-plugin.so", entry.binary, node_uri);
                 binaries.push((node_uri, binary));
                 &binaries.last().expect("just pushed").1
             };
@@ -305,6 +324,18 @@ impl PluginHost {
                 atom_index += 1;
             }
             instance.activate();
+            info!(
+                "graph node {} ready audio_in={} audio_out={} control_in={} control_out={} cv_in={} cv_out={} atom_out={}",
+                node_index,
+                audio_inputs.len(),
+                audio_outputs.len(),
+                control_inputs.len(),
+                control_outputs.len(),
+                cv_inputs.len(),
+                cv_outputs.len(),
+                atom_outputs.len()
+            );
+            log_heap("after node setup");
             nodes.push(PluginNode {
                 instance,
                 audio_inputs,
@@ -460,13 +491,15 @@ impl PluginHost {
                 _ => panic!("graph edge connects incompatible ports"),
             }
         }
+        info!(
+            "plugin graph ready nodes={} edges={}",
+            graph.node_count, graph.edge_count
+        );
         // The graph's declared output ports (e.g. Ingen's `audio_out_1`/
         // `audio_out_2`) tell us exactly which node/port feeds the left and
         // right channels, rather than guessing from the node topology.
         let output = |output_index: u16| -> (usize, u32) {
-            let output = graph
-                .output(output_index)
-                .expect("invalid graph output");
+            let output = graph.output(output_index).expect("invalid graph output");
             (output.node as usize, output.port as u32)
         };
         assert!(graph.output_count > 0, "graph has no audio output");
@@ -527,6 +560,9 @@ impl PluginHost {
             event_count += 1;
         }
         midi_sequence.set_event_count(event_count);
+        if event_count > 0 {
+            debug!("MIDI input block events={}", event_count);
+        }
 
         for (index, node) in self.nodes.iter_mut().enumerate() {
             // LV2 Atom outputs receive writable capacity in atom.size; the
@@ -537,6 +573,14 @@ impl PluginHost {
             #[cfg(feature = "perf-diagnostics")]
             let node_start = Instant::now();
             node.instance.run(BLOCK_SIZE as u32);
+            for (port, sequence) in &node.atom_outputs {
+                if sequence.atom.size > size_of::<Lv2AtomSequenceBody>() as u32 {
+                    debug!(
+                        "MIDI output node={} port={} bytes={}",
+                        index, port, sequence.atom.size
+                    );
+                }
+            }
             #[cfg(feature = "perf-diagnostics")]
             {
                 self.node_micros[index] += node_start.elapsed().as_micros();
