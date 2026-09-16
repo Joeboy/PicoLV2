@@ -33,13 +33,13 @@ brought you the $35 Raspberry Pi computer in 2012.
 
 ![Raspberry Pi Pico 2](docs/images/raspberry-pi-pico-2.jpg)
 
-It runs (un-overclocked) at 150MHz. Which one the one hand is ~3000 cycles per
+It runs (un-overclocked) at 150MHz. Which on the one hand is ~3000 cycles per
 sample at 48KHz, which seems like enough to get some stuff done. On the other
 hand it's a lot less than you get even on a "very slow" modern PC.
 
-It has 2MB of Flash RAM and 520KB of SRAM. For anything realtime we have to use
-the SRAM, so that's a bit of a limitation. Eg. a 2.5s mono audio buffer takes up
-480KB on its own.
+It has 4MB of Flash memory and 520KB of SRAM. For anything realtime we have to
+use the SRAM, so that's a bit of a limitation. Eg. a 2.5s mono audio buffer
+takes up 480KB on its own.
 
 I guess there's a lot we won't be able to do, but also a lot we will. It's a $5
 device, there will be compromises.
@@ -125,7 +125,7 @@ LV2 plugins using Ingen and flash the graph to your Pico with the
   `picolv2-image` and the plugins. I guess Github actions.
 - General testing. Lots of testing.
 - Add overclocking support. I haven't really felt a need for it during my
-  initial exploratory phase, but it'll obviously arise at some poin.
+  initial exploratory phase, but it'll obviously arise at some point.
 
 ## Caveats and limitations
 

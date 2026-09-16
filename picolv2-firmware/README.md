@@ -24,5 +24,5 @@ cargo build --release --features perf-diagnostics
 
 To use it, you need to build it, use `picolv2-image create` to combine it with a
 plugin graph, then flash it to a Raspberry Pi Pico 2. See the
-[picolv2image README](../picolv2-image/README.md) for more detailed
+[picolv2-image README](../picolv2-image/README.md) for more detailed
 instructions.
