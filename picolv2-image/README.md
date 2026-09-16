@@ -68,7 +68,10 @@ cd ..
 
 The rest of this README assumes `picolv2-image` is on your PATH.
 
-When built with `--features gui`, running `picolv2-image` without arguments opens the graphical interface. You can select the firmware file, `.ingen` patch folder, output format (`.uf2` by default or raw image), and click "Generate UF2 Image".
+When built with `--features gui`, running `picolv2-image` without arguments
+opens the graphical interface. You can select the firmware file, `.ingen` patch
+folder, output format (`.uf2` by default or raw image), and click "Generate UF2
+Image".
 
 #### Build the plugins
 
@@ -101,12 +104,12 @@ available from elsewhere, you can also drop them in the relevant folders.
 PICOLV2_PATH=plugins/pico \
 picolv2-image create \
   --firmware-elf picolv2-firmware/target/thumbv8m.main-none-eabihf/release/picolv2-firmware \
-  --ingen patches/synths/mda_dx10.ingen \
+  --patch patches/synths/mda_dx10.ingen \
   --output pico-image.bin
 ```
 
-The plugin URIs included in the bundle are inferred from the ingen file. There
-must be a valid PicoLV2 bundle under PICOLV2_PATH for each plugin used.
+The plugin URIs included in the bundle are inferred from the patch. There must
+be a valid PicoLV2 bundle under `PICOLV2_PATH` for each plugin used.
 
 ## 4. Flash the Pico
 
@@ -139,7 +142,7 @@ Plugin URIs must be unique and are resolved from `PICOLV2_PATH`; each bundle's
 `manifest.ttl` supplies the binary and the matching `rdfs:seeAlso` declaration
 locates the plugin TTL. Plugin metadata is parsed during image creation and
 stored as compact port records; invalid or unsupported port metadata fails the
-command. The bundle has a 512 KiB maximum size. `--ingen` accepts an Ingen graph
+command. The bundle has a 512 KiB maximum size. `--patch` accepts an Ingen graph
 bundle directory (e.g. `patches/throwaway/tine-piano-plus-delay.ingen`), reading
 its `manifest.ttl` to locate and parse the graph.
 

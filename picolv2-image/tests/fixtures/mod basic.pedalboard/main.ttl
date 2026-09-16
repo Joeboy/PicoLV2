@@ -1,0 +1,42 @@
+@prefix ingen: <http://drobilla.net/ns/ingen#> .
+@prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix pedal: <http://moddevices.com/ns/modpedal#> .
+
+_:output
+    ingen:tail <DX10/left_out> ;
+    ingen:head <playback_1> .
+
+<DX10>
+    ingen:enabled true ;
+    lv2:port <DX10/left_out> ,
+             <DX10/attack> ,
+             <DX10/event_in> ,
+             <DX10/:bypass> ;
+    lv2:prototype <http://moddevices.com/plugins/mda/DX10> ;
+    a ingen:Block .
+
+<DX10/attack>
+    ingen:value 123.5 ;
+    a lv2:ControlPort , lv2:InputPort .
+
+<DX10/event_in>
+    a lv2:InputPort .
+
+<DX10/:bypass>
+    ingen:value 0 ;
+    a lv2:ControlPort , lv2:InputPort .
+
+<:bpm>
+    ingen:value 120.0 ;
+    lv2:index 0 ;
+    a lv2:ControlPort , lv2:InputPort .
+
+<playback_1>
+    lv2:index 1 ;
+    a lv2:AudioPort , lv2:OutputPort .
+
+<>
+    ingen:arc _:output ;
+    ingen:block <DX10> ;
+    lv2:port <:bpm> , <playback_1> ;
+    a lv2:Plugin , ingen:Graph , pedal:Pedalboard .

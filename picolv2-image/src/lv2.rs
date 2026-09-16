@@ -7,6 +7,7 @@ const RDFS_SEE_ALSO: &str = "http://www.w3.org/2000/01/rdf-schema#seeAlso";
 const LV2_BINARY: &str = "http://lv2plug.in/ns/lv2core#binary";
 const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
 const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
+const LV2_SYMBOL: &str = "http://lv2plug.in/ns/lv2core#symbol";
 const LV2_DEFAULT: &str = "http://lv2plug.in/ns/lv2core#default";
 const LV2_INPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#InputPort";
 const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
@@ -17,27 +18,12 @@ const ATOM_PORT: &str = "http://lv2plug.in/ns/ext/atom#AtomPort";
 
 pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>, String> {
     let manifest = turtle::parse(manifest_path, "plugin manifest")?;
-    let metadata_uri =
-        turtle::object_for(&manifest, plugin_uri, RDFS_SEE_ALSO).ok_or_else(|| {
-            format!("plugin manifest {manifest_path} has no rdfs:seeAlso for {plugin_uri}")
-        })?;
-    let metadata_path = metadata_uri.strip_prefix("file:").ok_or_else(|| {
-        format!("plugin manifest {manifest_path} has a non-local rdfs:seeAlso for {plugin_uri}")
-    })?;
-    let path = Path::new(metadata_path);
-    let metadata_path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        Path::new(manifest_path)
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(path)
-    };
+    let metadata_path = metadata_path(plugin_uri, manifest_path, &manifest)?;
     let metadata_path = metadata_path.to_string_lossy();
     let triples = turtle::parse(&metadata_path, "plugin")?;
     let mut port_subjects: Vec<_> = triples
         .iter()
-        .filter(|triple| triple.predicate == LV2_PORT)
+        .filter(|triple| triple.subject == plugin_uri && triple.predicate == LV2_PORT)
         .map(|triple| triple.object.clone())
         .collect();
     port_subjects.sort();
@@ -103,6 +89,63 @@ pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>
         result.extend_from_slice(&default.unwrap_or(0.0).to_le_bytes());
     }
     Ok(result)
+}
+
+/// Return the symbol-to-index map from the canonical plugin metadata.  MOD
+/// pedalboards identify instance ports by symbol rather than repeating their
+/// numeric LV2 indices in the pedalboard file.
+pub fn port_indices(plugin_uri: &str, search_path: &str) -> Result<Vec<(String, u8)>, String> {
+    let (_, manifest_path) = discover(plugin_uri, search_path)?;
+    let manifest = turtle::parse(&manifest_path, "plugin manifest")?;
+    let metadata_path = metadata_path(plugin_uri, &manifest_path, &manifest)?;
+    let metadata_path = metadata_path.to_string_lossy();
+    let triples = turtle::parse(&metadata_path, "plugin")?;
+    let mut result = Vec::new();
+    for port in triples
+        .iter()
+        .filter(|triple| triple.subject == plugin_uri && triple.predicate == LV2_PORT)
+        .map(|triple| triple.object.as_str())
+    {
+        let symbol = turtle::object_for(&triples, port, LV2_SYMBOL)
+            .ok_or_else(|| format!("plugin {plugin_uri} port {port} has no lv2:symbol"))?;
+        let index = turtle::object_for(&triples, port, LV2_INDEX)
+            .ok_or_else(|| format!("plugin {plugin_uri} port {port} has no lv2:index"))?
+            .parse::<u8>()
+            .map_err(|_| format!("plugin {plugin_uri} port {port} has invalid lv2:index"))?;
+        if result.iter().any(|(existing, _)| existing == symbol) {
+            return Err(format!(
+                "plugin {plugin_uri} has duplicate port symbol {symbol}"
+            ));
+        }
+        result.push((symbol.to_string(), index));
+    }
+    if result.is_empty() {
+        return Err(format!("plugin {plugin_uri} has no ports"));
+    }
+    Ok(result)
+}
+
+fn metadata_path(
+    plugin_uri: &str,
+    manifest_path: &str,
+    manifest: &[turtle::Triple],
+) -> Result<std::path::PathBuf, String> {
+    let metadata_uri =
+        turtle::object_for(manifest, plugin_uri, RDFS_SEE_ALSO).ok_or_else(|| {
+            format!("plugin manifest {manifest_path} has no rdfs:seeAlso for {plugin_uri}")
+        })?;
+    let metadata_path = metadata_uri.strip_prefix("file:").ok_or_else(|| {
+        format!("plugin manifest {manifest_path} has a non-local rdfs:seeAlso for {plugin_uri}")
+    })?;
+    let path = Path::new(metadata_path);
+    Ok(if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        Path::new(manifest_path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(path)
+    })
 }
 
 pub fn discover(plugin_uri: &str, search_path: &str) -> Result<(String, String), String> {

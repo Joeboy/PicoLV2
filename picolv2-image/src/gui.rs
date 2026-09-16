@@ -65,6 +65,8 @@ impl PicoImageApp {
             .map(|name| {
                 if let Some(stripped) = name.strip_suffix(".ingen") {
                     stripped
+                } else if let Some(stripped) = name.strip_suffix(".pedalboard") {
+                    stripped
                 } else {
                     name
                 }
@@ -96,7 +98,7 @@ impl PicoImageApp {
             return;
         }
         if patch.is_empty() {
-            self.set_error("Please select an Ingen patch (.ingen folder).");
+            self.set_error("Please select an Ingen graph or MOD pedalboard folder.");
             return;
         }
         if search.is_empty() {
@@ -155,7 +157,7 @@ impl PicoImageApp {
         };
 
         self.log(format!(
-            "Ingen graph compiled: {} nodes, {} edges",
+            "Patch graph compiled: {} nodes, {} edges",
             result.graph_nodes, result.graph_edges
         ));
         self.log(format!("Discovered {} plugins:", result.plugins.len()));
@@ -232,7 +234,7 @@ impl eframe::App for PicoImageApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("PicoLV2 Image Creator");
-            ui.label("Build firmware images & UF2 files for PicoLV2 from Ingen patches.");
+            ui.label("Build firmware images & UF2 files from Ingen graphs or MOD pedalboards.");
             ui.add_space(8.0);
 
             // Inputs section
@@ -267,11 +269,11 @@ impl eframe::App for PicoImageApp {
                     ui.end_row();
 
                     // Patch Folder
-                    ui.label("Patch (.ingen):");
+                    ui.label("Patch folder:");
                     let patch_edit = ui.add_sized(
                         [ui.available_width() - 100.0, 22.0],
                         egui::TextEdit::singleline(&mut self.patch_path)
-                            .hint_text("Path to .ingen patch directory"),
+                            .hint_text("Path to .ingen or .pedalboard directory"),
                     );
                     if patch_edit.changed() {
                         self.status_message = None;

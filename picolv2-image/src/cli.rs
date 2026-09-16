@@ -14,7 +14,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
     }
     if arguments.first().map(String::as_str) != Some("create") {
         eprintln!(
-            "usage: PICOLV2_PATH=DIR[:DIR...] picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN | --firmware FW) --ingen GRAPH.ingen [--plugin URI [...]]"
+            "usage: PICOLV2_PATH=DIR[:DIR...] picolv2-image create -o IMAGE (--firmware-elf ELF | --firmware-bin BIN | --firmware FW) --patch PATCH [--plugin URI [...]]"
         );
         eprintln!("       picolv2-image uf2 -i IMAGE -o IMAGE.uf2");
         eprintln!("       picolv2-image info -i IMAGE");
@@ -46,7 +46,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
                 index += 1;
                 firmware_path = arguments.get(index).cloned();
             }
-            "--graph" | "--ingen" => {
+            "--patch" => {
                 index += 1;
                 graph_path = arguments.get(index).cloned();
             }
@@ -67,7 +67,7 @@ pub fn run(arguments: &[String]) -> ExitCode {
     }
 
     let (Some(output), Some(graph_path)) = (output, graph_path) else {
-        eprintln!("missing output or graph path");
+        eprintln!("missing output or patch path");
         return ExitCode::from(2);
     };
 

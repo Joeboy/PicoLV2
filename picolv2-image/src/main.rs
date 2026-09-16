@@ -1,9 +1,10 @@
 pub mod builder;
 pub mod cli;
+pub mod graph;
 #[cfg(feature = "gui")]
 pub mod gui;
-pub mod ingen;
 pub mod lv2;
+pub mod patch_formats;
 pub mod turtle;
 
 use std::{env, process::ExitCode};
@@ -30,4 +31,3 @@ fn main() -> ExitCode {
         cli::run(&args)
     }
 }
-

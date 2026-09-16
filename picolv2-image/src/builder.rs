@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use goblin::elf::{program_header::PT_LOAD, Elf};
 use picolv2_image_format::{Bundle, Graph, FLASH_ADDRESS, MAGIC, MAX_SIZE, VERSION};
 
-use crate::{ingen, lv2};
+use crate::{graph, lv2};
 
 pub const UF2_BLOCK_SIZE: usize = 512;
 pub const UF2_PAYLOAD_SIZE: usize = 256;
@@ -94,7 +94,7 @@ pub fn create_flash_image(options: &CreateOptions) -> Result<CreateResult, Strin
     let firmware = load_firmware(options.firmware_path)?;
 
     let graph_path_str = options.graph_path.to_string_lossy();
-    let graph = ingen::compile(&graph_path_str)?;
+    let graph = graph::compile(&graph_path_str, options.search_path)?;
     let parsed_graph = Graph::parse(&graph).map_err(|_| "invalid graph file".to_string())?;
 
     let mut plugins = options.explicit_plugins.to_vec();
@@ -275,6 +275,51 @@ pub fn image_info(image_bytes: &[u8], path_display: &str) -> Result<String, Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const TEST_FIRMWARE: &str = "tests/fixtures/test-firmware.bin";
+    const TEST_PLUGIN_PATH: &str = "../plugins/pico";
+    const DX10_URI: &str = "http://moddevices.com/plugins/mda/DX10";
+
+    fn assert_dx10_image(graph_path: &str, expected_attack: Option<f32>) {
+        let result = create_flash_image(&CreateOptions {
+            firmware_path: Path::new(TEST_FIRMWARE),
+            graph_path: Path::new(graph_path),
+            search_path: TEST_PLUGIN_PATH,
+            explicit_plugins: &[],
+        })
+        .unwrap_or_else(|error| panic!("failed to create image from {graph_path}: {error}"));
+
+        assert_eq!(result.image_bytes.len(), 2 * 1024 * 1024);
+        assert_eq!(
+            result.firmware_size,
+            include_bytes!("../tests/fixtures/test-firmware.bin").len()
+        );
+        assert_eq!(result.graph_nodes, 1);
+        assert_eq!(result.graph_edges, 0);
+        assert_eq!(result.plugins, [DX10_URI]);
+
+        let bundle_offset = FLASH_ADDRESS - 0x1000_0000;
+        let bundle = Bundle::parse(&result.image_bytes[bundle_offset..])
+            .expect("generated image contains an invalid bundle");
+        assert_eq!(bundle.plugin_count(), 1);
+        assert_eq!(bundle.entry_at(0).unwrap().uri, DX10_URI.as_bytes());
+        let graph = bundle
+            .graph()
+            .expect("generated image contains an invalid graph");
+        assert_eq!(graph.node_count, 1);
+        assert_eq!(graph.output_count, 1);
+        assert_eq!(graph.node(0).unwrap().override_value(0), expected_attack);
+    }
+
+    #[test]
+    fn creates_complete_image_from_ingen_bundle() {
+        assert_dx10_image("../patches/synths/mda_dx10.ingen", Some(2.5));
+    }
+
+    #[test]
+    fn creates_complete_image_from_mod_pedalboard() {
+        assert_dx10_image("tests/fixtures/mod basic.pedalboard", Some(123.5));
+    }
 
     #[test]
     fn test_image_to_uf2_empty_fails_or_generates() {
