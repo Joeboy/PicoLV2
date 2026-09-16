@@ -43,6 +43,8 @@ pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>
             .collect();
         let kind = if types.contains(&ATOM_PORT) && types.contains(&LV2_INPUT_PORT) {
             PortKind::AtomInput
+        } else if types.contains(&ATOM_PORT) && types.contains(&LV2_OUTPUT_PORT) {
+            PortKind::AtomOutput
         } else if types.contains(&LV2_AUDIO_PORT) && types.contains(&LV2_INPUT_PORT) {
             PortKind::AudioInput
         } else if types.contains(&LV2_AUDIO_PORT) && types.contains(&LV2_OUTPUT_PORT) {

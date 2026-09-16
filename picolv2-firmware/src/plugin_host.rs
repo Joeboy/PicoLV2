@@ -148,6 +148,8 @@ struct PluginNode {
     control_outputs: Vec<(u32, Box<f32>)>,
     cv_inputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
     cv_outputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
+    // Atom output buffers are shared directly with downstream Atom inputs.
+    atom_outputs: Vec<(u32, Box<Lv2MidiSequence>)>,
 }
 
 impl PluginInstance {
@@ -293,6 +295,15 @@ impl PluginHost {
                 cv_outputs.push((port.index, buffer));
                 cv_index += 1;
             }
+            let mut atom_index = 0;
+            let mut atom_outputs = Vec::new();
+            while let Some(port) = metadata.port(PortKind::AtomOutput, atom_index) {
+                let mut sequence = Box::new(Lv2MidiSequence::empty());
+                sequence.set_capacity();
+                instance.connect_port(port.index, sequence.as_mut() as *mut _ as *mut c_void);
+                atom_outputs.push((port.index, sequence));
+                atom_index += 1;
+            }
             instance.activate();
             nodes.push(PluginNode {
                 instance,
@@ -302,6 +313,7 @@ impl PluginHost {
                 control_outputs,
                 cv_inputs,
                 cv_outputs,
+                atom_outputs,
             });
         }
         let mut control_to_cv_bridges = Vec::new();
@@ -387,6 +399,20 @@ impl PluginHost {
                     nodes[destination_index]
                         .instance
                         .connect_port(destination.index, control as *mut c_void);
+                }
+                (Some(source), Some(destination))
+                    if source.kind == PortKind::AtomOutput
+                        && destination.kind == PortKind::AtomInput =>
+                {
+                    let sequence = nodes[source_index]
+                        .atom_outputs
+                        .iter_mut()
+                        .find(|(port, _)| *port == source.index)
+                        .map(|(_, sequence)| sequence.as_mut() as *mut _ as *mut c_void)
+                        .expect("graph source atom port is not connected");
+                    nodes[destination_index]
+                        .instance
+                        .connect_port(destination.index, sequence);
                 }
                 (Some(source), Some(destination))
                     if source.kind == PortKind::CvOutput
@@ -503,6 +529,11 @@ impl PluginHost {
         midi_sequence.set_event_count(event_count);
 
         for (index, node) in self.nodes.iter_mut().enumerate() {
+            // LV2 Atom outputs receive writable capacity in atom.size; the
+            // plugin replaces it with the emitted sequence size during run().
+            for (_, sequence) in &mut node.atom_outputs {
+                sequence.set_capacity();
+            }
             #[cfg(feature = "perf-diagnostics")]
             let node_start = Instant::now();
             node.instance.run(BLOCK_SIZE as u32);

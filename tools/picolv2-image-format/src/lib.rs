@@ -96,6 +96,7 @@ pub enum PortKind {
     ControlOutput = 5,
     CvInput = 6,
     CvOutput = 7,
+    AtomOutput = 8,
 }
 
 #[derive(Clone, Copy)]
@@ -356,6 +357,7 @@ impl<'a> PluginMetadata<'a> {
                 5 => PortKind::ControlOutput,
                 6 => PortKind::CvInput,
                 7 => PortKind::CvOutput,
+                8 => PortKind::AtomOutput,
                 _ => return None,
             };
             if port_kind != kind {
@@ -391,6 +393,7 @@ impl<'a> PluginMetadata<'a> {
                 5 => PortKind::ControlOutput,
                 6 => PortKind::CvInput,
                 7 => PortKind::CvOutput,
+                8 => PortKind::AtomOutput,
                 _ => return None,
             };
             if read_u32(self.bytes, offset + 4)? != requested_index {

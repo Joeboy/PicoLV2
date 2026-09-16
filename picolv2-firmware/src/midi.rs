@@ -74,6 +74,12 @@ impl Lv2MidiSequence {
         self.atom.size = (core::mem::size_of::<Lv2AtomSequenceBody>()
             + event_count * core::mem::size_of::<Lv2MidiEvent>()) as u32;
     }
+
+    pub fn set_capacity(&mut self) {
+        self.atom.size = (core::mem::size_of::<Lv2AtomSequenceBody>()
+            + self.events.len() * core::mem::size_of::<Lv2MidiEvent>())
+            as u32;
+    }
 }
 
 pub static MIDI_QUEUE: StaticCell<Queue<MidiEvent, MIDI_QUEUE_SIZE>> = StaticCell::new();
