@@ -1,9 +1,10 @@
-REPOSITORIES := ams-lv2 mda-lv2 swh-lv2 midifilter.lv2
+REPOSITORIES := ams-lv2 mda-lv2 swh-lv2 midifilter.lv2 tap-lv2
 
 AMS_LV2_REPOSITORY := git@github.com:Joeboy/ams-lv2.git
 MDA_LV2_REPOSITORY := git@github.com:Joeboy/mda-lv2.git
 SWH_LV2_REPOSITORY := git@github.com:Joeboy/swh-lv2.git
 MIDIFILTER_LV2_REPOSITORY := git@github.com:Joeboy/midifilter.lv2.git
+TAP_LV2_REPOSITORY := git@github.com:Joeboy/tap-lv2.git
 
 PICOLV2_BUNDLE_ROOT ?= $(CURDIR)/build/picolv2
 MDA_EPIANO_RESAMPLING ?= 3
@@ -11,9 +12,9 @@ MDA_PIANO_RESAMPLING ?= 4
 MIDIFILTER_PICO_STRIP := $(if $(filter 0,$(STRIP)),true,arm-none-eabi-strip)
 MIDIFILTER_PC_STRIP := $(if $(filter 0,$(STRIP)),true,strip)
 
-.PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 \
+.PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 \
 	ams-lv2-pico ams-lv2-pc mda-lv2-pico mda-lv2-pc swh-lv2-pico swh-lv2-pc \
-	midifilter-lv2-pico midifilter-lv2-pc \
+	midifilter-lv2-pico midifilter-lv2-pc tap-lv2-pico tap-lv2-pc \
 	pico pc bundle bundle-pico bundle-pc test clean
 
 all: bundle
@@ -46,7 +47,14 @@ fetch-midifilter-lv2:
 		git clone "$(MIDIFILTER_LV2_REPOSITORY)" "$(CURDIR)/midifilter.lv2"; \
 	fi
 
-fetch: fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2
+fetch-tap-lv2:
+	@if test -d "$(CURDIR)/tap-lv2/.git"; then \
+		git -C "$(CURDIR)/tap-lv2" pull --ff-only; \
+	else \
+		git clone "$(TAP_LV2_REPOSITORY)" "$(CURDIR)/tap-lv2"; \
+	fi
+
+fetch: fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2
 
 ams-lv2-pico: fetch-ams-lv2
 	@cd "$(CURDIR)/ams-lv2" && \
@@ -102,9 +110,21 @@ midifilter-lv2-pc: fetch-midifilter-lv2
 		$(MAKE) STRIP=$(MIDIFILTER_PC_STRIP) all && \
 		$(MAKE) STRIP=$(MIDIFILTER_PC_STRIP) install LV2DIR="$(PICOLV2_BUNDLE_ROOT)/pc"
 
-pico: ams-lv2-pico mda-lv2-pico swh-lv2-pico midifilter-lv2-pico
+tap-lv2-pico: fetch-tap-lv2
+	@cd "$(CURDIR)/tap-lv2" && \
+		$(MAKE) PICOLV2=1 clean && \
+		$(MAKE) PICOLV2=1 all && \
+		$(MAKE) PICOLV2=1 install INSTALL_PATH="$(PICOLV2_BUNDLE_ROOT)/pico"
 
-pc: ams-lv2-pc mda-lv2-pc swh-lv2-pc midifilter-lv2-pc
+tap-lv2-pc: fetch-tap-lv2
+	@cd "$(CURDIR)/tap-lv2" && \
+		$(MAKE) clean && \
+		$(MAKE) all && \
+		$(MAKE) install INSTALL_PATH="$(PICOLV2_BUNDLE_ROOT)/pc"
+
+pico: ams-lv2-pico mda-lv2-pico swh-lv2-pico midifilter-lv2-pico tap-lv2-pico
+
+pc: ams-lv2-pc mda-lv2-pc swh-lv2-pc midifilter-lv2-pc tap-lv2-pc
 
 bundle: bundle-pico bundle-pc
 
@@ -125,4 +145,7 @@ clean:
 	fi
 	@if test -d "$(CURDIR)/midifilter.lv2"; then \
 		$(MAKE) -C "$(CURDIR)/midifilter.lv2" clean; \
+	fi
+	@if test -d "$(CURDIR)/tap-lv2"; then \
+		$(MAKE) -C "$(CURDIR)/tap-lv2" clean; \
 	fi

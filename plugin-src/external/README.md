@@ -7,5 +7,4 @@ third-party plugins that support PicoLV2
 The Makefile fetches the configured repositories and delegates each repository's
 Pico and desktop build to its own build recipe.
 
-I haven't tested these much, but I can pretty much guarantee some of them don't
-work.
+I haven't tested these much, but I can 100% promise you some of them won't work.
