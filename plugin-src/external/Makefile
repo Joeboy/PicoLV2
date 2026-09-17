@@ -1,4 +1,4 @@
-REPOSITORIES := ams-lv2 mda-lv2 swh-lv2 midifilter.lv2 tap-lv2 abGate caps-lv2
+REPOSITORIES := ams-lv2 mda-lv2 swh-lv2 midifilter.lv2 tap-lv2 abGate caps-lv2 LibreArp
 
 AMS_LV2_REPOSITORY := git@github.com:Joeboy/ams-lv2.git
 MDA_LV2_REPOSITORY := git@github.com:Joeboy/mda-lv2.git
@@ -7,6 +7,7 @@ MIDIFILTER_LV2_REPOSITORY := git@github.com:Joeboy/midifilter.lv2.git
 TAP_LV2_REPOSITORY := git@github.com:Joeboy/tap-lv2.git
 ABGATE_REPOSITORY := git@github.com:Joeboy/abGate.git
 CAPS_LV2_REPOSITORY := git@github.com:Joeboy/caps-lv2.git
+LIBREARP_REPOSITORY := git@github.com:Joeboy/LibreArp.git
 
 PICOLV2_BUNDLE_ROOT ?= $(CURDIR)/build/picolv2
 MDA_EPIANO_RESAMPLING ?= 3
@@ -14,10 +15,10 @@ MDA_PIANO_RESAMPLING ?= 4
 MIDIFILTER_PICO_STRIP := $(if $(filter 0,$(STRIP)),true,arm-none-eabi-strip)
 MIDIFILTER_PC_STRIP := $(if $(filter 0,$(STRIP)),true,strip)
 
-.PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2 \
+.PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2 fetch-librearp \
 	ams-lv2-pico ams-lv2-pc mda-lv2-pico mda-lv2-pc swh-lv2-pico swh-lv2-pc \
 	midifilter-lv2-pico midifilter-lv2-pc tap-lv2-pico tap-lv2-pc abgate-pico abgate-pc \
-	caps-lv2-pico caps-lv2-pc \
+	caps-lv2-pico caps-lv2-pc librearp-pico librearp-pc \
 	pico pc bundle bundle-pico bundle-pc test clean
 
 all: bundle
@@ -71,7 +72,16 @@ fetch-caps-lv2:
 		git clone "$(CAPS_LV2_REPOSITORY)" "$(CURDIR)/caps-lv2"; \
 	fi
 
-fetch: fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2
+fetch-librearp:
+	@if test -d "$(CURDIR)/LibreArp/.git"; then \
+		git -C "$(CURDIR)/LibreArp" switch lv2-pico; \
+		git -C "$(CURDIR)/LibreArp" pull --ff-only; \
+		git -C "$(CURDIR)/LibreArp" submodule update --init --recursive; \
+	else \
+		git clone --branch lv2-pico --recurse-submodules "$(LIBREARP_REPOSITORY)" "$(CURDIR)/LibreArp"; \
+	fi
+
+fetch: fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2 fetch-librearp
 
 ams-lv2-pico: fetch-ams-lv2
 	@cd "$(CURDIR)/ams-lv2" && \
@@ -163,9 +173,22 @@ caps-lv2-pc: fetch-caps-lv2
 		$(MAKE) all && \
 		$(MAKE) install LV2_DEST="$(PICOLV2_BUNDLE_ROOT)/pc"
 
-pico: ams-lv2-pico mda-lv2-pico swh-lv2-pico midifilter-lv2-pico tap-lv2-pico abgate-pico caps-lv2-pico
+librearp-pico: fetch-librearp
+	@cd "$(CURDIR)/LibreArp" && \
+		$(MAKE) -f Makefile.picolv2 clean && \
+		$(MAKE) -f Makefile.picolv2 all && \
+		$(MAKE) -f Makefile.picolv2 install LV2DIR="$(PICOLV2_BUNDLE_ROOT)/pico"
 
-pc: ams-lv2-pc mda-lv2-pc swh-lv2-pc midifilter-lv2-pc tap-lv2-pc abgate-pc caps-lv2-pc
+librearp-pc: fetch-librearp
+	@cd "$(CURDIR)/LibreArp" && \
+		cmake -S . -B build/pc -DCMAKE_BUILD_TYPE=Release && \
+		cmake --build build/pc --parallel && \
+		mkdir -p "$(PICOLV2_BUNDLE_ROOT)/pc" && \
+		cp -a build/pc/LibreArp_artefacts/Release/LV2/LibreArp.lv2 "$(PICOLV2_BUNDLE_ROOT)/pc/"
+
+pico: ams-lv2-pico mda-lv2-pico swh-lv2-pico midifilter-lv2-pico tap-lv2-pico abgate-pico caps-lv2-pico librearp-pico
+
+pc: ams-lv2-pc mda-lv2-pc swh-lv2-pc midifilter-lv2-pc tap-lv2-pc abgate-pc caps-lv2-pc librearp-pc
 
 bundle: bundle-pico bundle-pc
 
@@ -195,4 +218,8 @@ clean:
 	fi
 	@if test -d "$(CURDIR)/caps-lv2"; then \
 		$(MAKE) -C "$(CURDIR)/caps-lv2" clean; \
+	fi
+	@if test -d "$(CURDIR)/LibreArp"; then \
+		$(MAKE) -C "$(CURDIR)/LibreArp" -f Makefile.picolv2 clean; \
+		rm -rf "$(CURDIR)/LibreArp/build/pc"; \
 	fi
