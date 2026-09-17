@@ -1,4 +1,4 @@
-REPOSITORIES := ams-lv2 mda-lv2 swh-lv2 midifilter.lv2 tap-lv2 abGate caps-lv2 LibreArp
+REPOSITORIES := ams-lv2 mda-lv2 swh-lv2 midifilter.lv2 tap-lv2 abGate caps-lv2 LibreArp mod-arpeggiator-lv2
 
 AMS_LV2_REPOSITORY := git@github.com:Joeboy/ams-lv2.git
 MDA_LV2_REPOSITORY := git@github.com:Joeboy/mda-lv2.git
@@ -8,6 +8,7 @@ TAP_LV2_REPOSITORY := git@github.com:Joeboy/tap-lv2.git
 ABGATE_REPOSITORY := git@github.com:Joeboy/abGate.git
 CAPS_LV2_REPOSITORY := git@github.com:Joeboy/caps-lv2.git
 LIBREARP_REPOSITORY := git@github.com:Joeboy/LibreArp.git
+MOD_ARPEGGIATOR_LV2_REPOSITORY := git@github.com:Joeboy/mod-arpeggiator-lv2.git
 
 PICOLV2_BUNDLE_ROOT ?= $(CURDIR)/build/picolv2
 MDA_EPIANO_RESAMPLING ?= 3
@@ -15,10 +16,10 @@ MDA_PIANO_RESAMPLING ?= 4
 MIDIFILTER_PICO_STRIP := $(if $(filter 0,$(STRIP)),true,arm-none-eabi-strip)
 MIDIFILTER_PC_STRIP := $(if $(filter 0,$(STRIP)),true,strip)
 
-.PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2 fetch-librearp \
+.PHONY: all fetch fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2 fetch-librearp fetch-mod-arpeggiator-lv2 \
 	ams-lv2-pico ams-lv2-pc mda-lv2-pico mda-lv2-pc swh-lv2-pico swh-lv2-pc \
 	midifilter-lv2-pico midifilter-lv2-pc tap-lv2-pico tap-lv2-pc abgate-pico abgate-pc \
-	caps-lv2-pico caps-lv2-pc librearp-pico librearp-pc \
+	caps-lv2-pico caps-lv2-pc librearp-pico librearp-pc mod-arpeggiator-lv2-pico mod-arpeggiator-lv2-pc \
 	pico pc bundle bundle-pico bundle-pc test clean
 
 all: bundle
@@ -81,7 +82,15 @@ fetch-librearp:
 		git clone --branch lv2-pico --recurse-submodules "$(LIBREARP_REPOSITORY)" "$(CURDIR)/LibreArp"; \
 	fi
 
-fetch: fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2 fetch-librearp
+fetch-mod-arpeggiator-lv2:
+	@if test -d "$(CURDIR)/mod-arpeggiator-lv2/.git"; then \
+		git -C "$(CURDIR)/mod-arpeggiator-lv2" pull --ff-only; \
+		git -C "$(CURDIR)/mod-arpeggiator-lv2" submodule update --init --recursive; \
+	else \
+		git clone --recurse-submodules "$(MOD_ARPEGGIATOR_LV2_REPOSITORY)" "$(CURDIR)/mod-arpeggiator-lv2"; \
+	fi
+
+fetch: fetch-ams-lv2 fetch-mda-lv2 fetch-swh-lv2 fetch-midifilter-lv2 fetch-tap-lv2 fetch-abgate fetch-caps-lv2 fetch-librearp fetch-mod-arpeggiator-lv2
 
 ams-lv2-pico: fetch-ams-lv2
 	@cd "$(CURDIR)/ams-lv2" && \
@@ -186,9 +195,21 @@ librearp-pc: fetch-librearp
 		mkdir -p "$(PICOLV2_BUNDLE_ROOT)/pc" && \
 		cp -a build/pc/LibreArp_artefacts/Release/LV2/LibreArp.lv2 "$(PICOLV2_BUNDLE_ROOT)/pc/"
 
-pico: ams-lv2-pico mda-lv2-pico swh-lv2-pico midifilter-lv2-pico tap-lv2-pico abgate-pico caps-lv2-pico librearp-pico
+mod-arpeggiator-lv2-pico: fetch-mod-arpeggiator-lv2
+	@cd "$(CURDIR)/mod-arpeggiator-lv2" && \
+		$(MAKE) -f Makefile.picolv2 clean && \
+		$(MAKE) -f Makefile.picolv2 all STRIP=$(STRIP) && \
+		$(MAKE) -f Makefile.picolv2 install STRIP=$(STRIP) LV2DIR="$(PICOLV2_BUNDLE_ROOT)/pico"
 
-pc: ams-lv2-pc mda-lv2-pc swh-lv2-pc midifilter-lv2-pc tap-lv2-pc abgate-pc caps-lv2-pc librearp-pc
+mod-arpeggiator-lv2-pc: fetch-mod-arpeggiator-lv2
+	@cd "$(CURDIR)/mod-arpeggiator-lv2" && \
+		$(MAKE) clean && \
+		$(MAKE) all && \
+		$(MAKE) install LV2_DIR="$(PICOLV2_BUNDLE_ROOT)/pc"
+
+pico: ams-lv2-pico mda-lv2-pico swh-lv2-pico midifilter-lv2-pico tap-lv2-pico abgate-pico caps-lv2-pico librearp-pico mod-arpeggiator-lv2-pico
+
+pc: ams-lv2-pc mda-lv2-pc swh-lv2-pc midifilter-lv2-pc tap-lv2-pc abgate-pc caps-lv2-pc librearp-pc mod-arpeggiator-lv2-pc
 
 bundle: bundle-pico bundle-pc
 
@@ -222,4 +243,8 @@ clean:
 	@if test -d "$(CURDIR)/LibreArp"; then \
 		$(MAKE) -C "$(CURDIR)/LibreArp" -f Makefile.picolv2 clean; \
 		rm -rf "$(CURDIR)/LibreArp/build/pc"; \
+	fi
+	@if test -d "$(CURDIR)/mod-arpeggiator-lv2"; then \
+		$(MAKE) -C "$(CURDIR)/mod-arpeggiator-lv2" clean; \
+		$(MAKE) -C "$(CURDIR)/mod-arpeggiator-lv2" -f Makefile.picolv2 clean; \
 	fi
