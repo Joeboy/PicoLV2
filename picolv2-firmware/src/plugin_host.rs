@@ -22,12 +22,19 @@ use crate::audio_buffer::{
 use crate::host_hooks::HOST_SYMBOLS;
 use crate::log_heap;
 use crate::lv2::{
-    ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap, MIDI_EVENT_URI,
-    MIDI_EVENT_URID, URID_MAP_URI,
+    ATOM_BLANK_URI, ATOM_BLANK_URID, ATOM_DOUBLE_URI, ATOM_DOUBLE_URID, ATOM_FLOAT_URI,
+    ATOM_FLOAT_URID, ATOM_INT_URI, ATOM_INT_URID, ATOM_LONG_URI, ATOM_LONG_URID, ATOM_OBJECT_URI,
+    ATOM_OBJECT_URID, ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap,
+    MIDI_EVENT_URI, MIDI_EVENT_URID, TIME_BAR_BEAT_URI, TIME_BAR_BEAT_URID, TIME_BAR_URI,
+    TIME_BAR_URID, TIME_BEAT_UNIT_URI, TIME_BEAT_UNIT_URID, TIME_BEATS_PER_BAR_URI,
+    TIME_BEATS_PER_BAR_URID, TIME_BEATS_PER_MINUTE_URI, TIME_BEATS_PER_MINUTE_URID, TIME_FRAME_URI,
+    TIME_FRAME_URID, TIME_POSITION_URI, TIME_POSITION_URID, TIME_SPEED_URI, TIME_SPEED_URID,
+    URID_MAP_URI,
 };
-use crate::midi::{Lv2AtomSequenceBody, Lv2MidiSequence, MidiEvent};
+use crate::midi::{Lv2AtomSequence, Lv2AtomSequenceBody, MidiEvent};
 
-static mut MIDI_SEQUENCE: Lv2MidiSequence = Lv2MidiSequence::empty();
+const TRANSPORT_BPM: f32 = 120.0;
+static mut MIDI_SEQUENCE: Lv2AtomSequence = Lv2AtomSequence::empty();
 
 extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
     if uri.is_null() {
@@ -35,12 +42,24 @@ extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
     }
 
     let uri = unsafe { CStr::from_ptr(uri) }.to_bytes_with_nul();
-    if uri == ATOM_SEQUENCE_URI {
-        ATOM_SEQUENCE_URID
-    } else if uri == MIDI_EVENT_URI {
-        MIDI_EVENT_URID
-    } else {
-        0
+    match uri {
+        ATOM_SEQUENCE_URI => ATOM_SEQUENCE_URID,
+        MIDI_EVENT_URI => MIDI_EVENT_URID,
+        ATOM_BLANK_URI => ATOM_BLANK_URID,
+        ATOM_OBJECT_URI => ATOM_OBJECT_URID,
+        ATOM_DOUBLE_URI => ATOM_DOUBLE_URID,
+        ATOM_FLOAT_URI => ATOM_FLOAT_URID,
+        ATOM_INT_URI => ATOM_INT_URID,
+        ATOM_LONG_URI => ATOM_LONG_URID,
+        TIME_POSITION_URI => TIME_POSITION_URID,
+        TIME_BAR_URI => TIME_BAR_URID,
+        TIME_BAR_BEAT_URI => TIME_BAR_BEAT_URID,
+        TIME_BEATS_PER_BAR_URI => TIME_BEATS_PER_BAR_URID,
+        TIME_BEATS_PER_MINUTE_URI => TIME_BEATS_PER_MINUTE_URID,
+        TIME_BEAT_UNIT_URI => TIME_BEAT_UNIT_URID,
+        TIME_FRAME_URI => TIME_FRAME_URID,
+        TIME_SPEED_URI => TIME_SPEED_URID,
+        _ => 0,
     }
 }
 
@@ -164,7 +183,7 @@ struct PluginNode {
     cv_inputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
     cv_outputs: Vec<(u32, Box<[f32; BLOCK_SIZE]>)>,
     // Atom output buffers are shared directly with downstream Atom inputs.
-    atom_outputs: Vec<(u32, Box<Lv2MidiSequence>)>,
+    atom_outputs: Vec<(u32, Box<Lv2AtomSequence>)>,
 }
 
 impl PluginInstance {
@@ -317,7 +336,7 @@ impl PluginHost {
             let mut atom_index = 0;
             let mut atom_outputs = Vec::new();
             while let Some(port) = metadata.port(PortKind::AtomOutput, atom_index) {
-                let mut sequence = Box::new(Lv2MidiSequence::empty());
+                let mut sequence = Box::new(Lv2AtomSequence::empty());
                 sequence.set_capacity();
                 instance.connect_port(port.index, sequence.as_mut() as *mut _ as *mut c_void);
                 atom_outputs.push((port.index, sequence));
@@ -530,8 +549,13 @@ impl PluginHost {
 
     unsafe fn process(&mut self, output: *mut f32) {
         let midi_sequence = unsafe { &mut *core::ptr::addr_of_mut!(MIDI_SEQUENCE) };
+        midi_sequence.clear();
+        assert!(
+            midi_sequence.push_position(self.block_start_frame, SAMPLE_RATE, TRANSPORT_BPM),
+            "LV2 atom input buffer too small for transport position"
+        );
         let mut event_count = 0;
-        while event_count < midi_sequence.events.len() {
+        while event_count < crate::midi::MIDI_BLOCK_CAPACITY {
             let Some(event) = self
                 .pending_midi
                 .take()
@@ -554,12 +578,15 @@ impl PluginHost {
                 break;
             }
 
-            midi_sequence.events[event_count].frame =
-                target_frame.saturating_sub(self.block_start_frame) as i64;
-            midi_sequence.events[event_count].message = [event.status, event.data1, event.data2];
+            if !midi_sequence.push_midi(
+                target_frame.saturating_sub(self.block_start_frame) as i64,
+                [event.status, event.data1, event.data2],
+            ) {
+                self.pending_midi = Some(event);
+                break;
+            }
             event_count += 1;
         }
-        midi_sequence.set_event_count(event_count);
         if event_count > 0 {
             debug!("MIDI input block events={}", event_count);
         }

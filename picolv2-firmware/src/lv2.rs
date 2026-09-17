@@ -3,9 +3,37 @@ use core::ffi::{c_char, c_void};
 pub const URID_MAP_URI: &[u8] = b"http://lv2plug.in/ns/ext/urid#map\0";
 pub const ATOM_SEQUENCE_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Sequence\0";
 pub const MIDI_EVENT_URI: &[u8] = b"http://lv2plug.in/ns/ext/midi#MidiEvent\0";
+pub const ATOM_BLANK_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Blank\0";
+pub const ATOM_OBJECT_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Object\0";
+pub const ATOM_DOUBLE_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Double\0";
+pub const ATOM_FLOAT_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Float\0";
+pub const ATOM_INT_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Int\0";
+pub const ATOM_LONG_URI: &[u8] = b"http://lv2plug.in/ns/ext/atom#Long\0";
+pub const TIME_POSITION_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#Position\0";
+pub const TIME_BAR_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#bar\0";
+pub const TIME_BAR_BEAT_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#barBeat\0";
+pub const TIME_BEATS_PER_BAR_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#beatsPerBar\0";
+pub const TIME_BEATS_PER_MINUTE_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#beatsPerMinute\0";
+pub const TIME_BEAT_UNIT_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#beatUnit\0";
+pub const TIME_FRAME_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#frame\0";
+pub const TIME_SPEED_URI: &[u8] = b"http://lv2plug.in/ns/ext/time#speed\0";
 
 pub const ATOM_SEQUENCE_URID: u32 = 1;
 pub const MIDI_EVENT_URID: u32 = 2;
+pub const ATOM_BLANK_URID: u32 = 3;
+pub const ATOM_OBJECT_URID: u32 = 4;
+pub const ATOM_DOUBLE_URID: u32 = 5;
+pub const ATOM_FLOAT_URID: u32 = 6;
+pub const ATOM_INT_URID: u32 = 7;
+pub const ATOM_LONG_URID: u32 = 8;
+pub const TIME_POSITION_URID: u32 = 9;
+pub const TIME_BAR_URID: u32 = 10;
+pub const TIME_BAR_BEAT_URID: u32 = 11;
+pub const TIME_BEATS_PER_BAR_URID: u32 = 12;
+pub const TIME_BEATS_PER_MINUTE_URID: u32 = 13;
+pub const TIME_BEAT_UNIT_URID: u32 = 14;
+pub const TIME_FRAME_URID: u32 = 15;
+pub const TIME_SPEED_URID: u32 = 16;
 
 #[repr(C)]
 pub struct Lv2Feature {
