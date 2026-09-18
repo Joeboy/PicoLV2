@@ -8,8 +8,7 @@ use elf_loader::{
 };
 
 use super::host_abi::HOST_SYMBOLS;
-use crate::log_heap;
-use crate::lv2::{
+use super::lv2::{
     ATOM_BLANK_URI, ATOM_BLANK_URID, ATOM_DOUBLE_URI, ATOM_DOUBLE_URID, ATOM_FLOAT_URI,
     ATOM_FLOAT_URID, ATOM_INT_URI, ATOM_INT_URID, ATOM_LONG_URI, ATOM_LONG_URID, ATOM_OBJECT_URI,
     ATOM_OBJECT_URID, ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap,
@@ -19,6 +18,7 @@ use crate::lv2::{
     TIME_FRAME_URID, TIME_POSITION_URI, TIME_POSITION_URID, TIME_SPEED_URI, TIME_SPEED_URID,
     URID_MAP_URI,
 };
+use crate::log_heap;
 
 extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
     if uri.is_null() {

@@ -1,4 +1,5 @@
 mod host_abi;
+pub(crate) mod lv2;
 mod lv2_runtime;
 mod midi_binding;
 mod plugin_graph;
