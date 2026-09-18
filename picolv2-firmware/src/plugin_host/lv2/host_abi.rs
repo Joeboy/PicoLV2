@@ -1,5 +1,5 @@
 //! Stable host functions resolved into plugin binaries at relocation time (see
-//! `lv2_runtime`'s `SyntheticModule`). These are the small C ABI used by
+//! `runtime`'s `SyntheticModule`). These are the small C ABI used by
 //! `plugins/pico-alloc.c`; C++ runtime compatibility functions belong in the
 //! plugin build and are not part of the host ABI.
 

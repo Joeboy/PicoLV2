@@ -8,7 +8,7 @@ use elf_loader::{
 };
 
 use super::host_abi::HOST_SYMBOLS;
-use super::lv2::{
+use super::{
     ATOM_BLANK_URI, ATOM_BLANK_URID, ATOM_DOUBLE_URI, ATOM_DOUBLE_URID, ATOM_FLOAT_URI,
     ATOM_FLOAT_URID, ATOM_INT_URI, ATOM_INT_URID, ATOM_LONG_URI, ATOM_LONG_URID, ATOM_OBJECT_URI,
     ATOM_OBJECT_URID, ATOM_SEQUENCE_URI, ATOM_SEQUENCE_URID, Lv2Descriptor, Lv2Feature, Lv2UridMap,
@@ -58,17 +58,17 @@ static mut URID_MAP_FEATURE: Lv2Feature = Lv2Feature {
 static mut FEATURES: [*const Lv2Feature; 2] =
     [core::ptr::addr_of!(URID_MAP_FEATURE), core::ptr::null()];
 
-pub(super) fn features_ptr() -> *const *const Lv2Feature {
+pub(in crate::plugin_host) fn features_ptr() -> *const *const Lv2Feature {
     core::ptr::addr_of!(FEATURES) as *const *const Lv2Feature
 }
 
 /// Represents a loaded, relocated LV2 plugin library binary.
-pub(super) struct PluginBinary {
+pub(in crate::plugin_host) struct PluginBinary {
     descriptor: &'static Lv2Descriptor,
 }
 
 impl PluginBinary {
-    pub(super) fn load(name: &str, elf_bytes: &[u8], plugin_uri: &[u8]) -> Self {
+    pub(in crate::plugin_host) fn load(name: &str, elf_bytes: &[u8], plugin_uri: &[u8]) -> Self {
         info!(
             "plugin load begin name={} elf_bytes={}",
             name,
@@ -118,7 +118,7 @@ impl PluginBinary {
         Self { descriptor }
     }
 
-    pub(super) fn instantiate(
+    pub(in crate::plugin_host) fn instantiate(
         &self,
         sample_rate: f64,
         features: *const *const Lv2Feature,
@@ -138,28 +138,28 @@ impl PluginBinary {
 }
 
 /// An active instance of a loaded LV2 plugin.
-pub(super) struct PluginInstance {
+pub(in crate::plugin_host) struct PluginInstance {
     descriptor: &'static Lv2Descriptor,
     handle: *mut c_void,
 }
 
 impl PluginInstance {
-    pub(super) fn connect_port(&mut self, port: u32, data_location: *mut c_void) {
+    pub(in crate::plugin_host) fn connect_port(&mut self, port: u32, data_location: *mut c_void) {
         (self.descriptor.connect_port)(self.handle, port, data_location);
     }
 
-    pub(super) fn activate(&mut self) {
+    pub(in crate::plugin_host) fn activate(&mut self) {
         if let Some(activate) = self.descriptor.activate {
             activate(self.handle);
         }
     }
 
-    pub(super) fn run(&mut self, sample_count: u32) {
+    pub(in crate::plugin_host) fn run(&mut self, sample_count: u32) {
         (self.descriptor.run)(self.handle, sample_count);
     }
 
     #[allow(dead_code)]
-    pub(super) fn deactivate(&mut self) {
+    pub(in crate::plugin_host) fn deactivate(&mut self) {
         if let Some(deactivate) = self.descriptor.deactivate {
             deactivate(self.handle);
         }

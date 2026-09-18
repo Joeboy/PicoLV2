@@ -4,25 +4,22 @@
 extern crate alloc;
 
 mod audio_buffer;
-mod audio_out;
-mod i2s_ping_pong;
+mod hardware;
 mod midi;
 mod plugin_host;
-mod usb_midi_in;
 
 use audio_buffer::{AUDIO_BLOCK_COUNT, FREE_AUDIO_BLOCKS, READY_AUDIO_BLOCKS};
-use audio_out::audio_task;
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_rp::multicore::{Stack, spawn_core1};
 use embedded_alloc::TlsfHeap as Heap;
+use hardware::{audio_task, usb_midi_task};
 use heapless::spsc::Queue;
 use midi::MIDI_QUEUE;
 use plugin_host::plugin_host_task;
 use static_cell::StaticCell;
-use usb_midi_in::usb_midi_task;
 use {defmt_rtt as _, panic_probe as _};
 
 struct CountingHeap {

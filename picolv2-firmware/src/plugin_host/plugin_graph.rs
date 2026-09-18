@@ -4,11 +4,9 @@ use core::ffi::c_void;
 use defmt::info;
 use picolv2_image_format::{Bundle, Entry, Graph, Node, PluginMetadata, PortKind};
 
-use super::lv2::Lv2Feature;
-use super::lv2_runtime::{PluginBinary, PluginInstance};
+use super::lv2::{Lv2AtomSequence, Lv2Feature, PluginBinary, PluginInstance};
 use crate::audio_buffer::{BLOCK_SIZE, SAMPLE_RATE};
 use crate::log_heap;
-use crate::midi::Lv2AtomSequence;
 
 // Bridges a block-rate control output to an audio-rate CV input; the source
 // value is broadcast across the destination's whole block every render cycle.

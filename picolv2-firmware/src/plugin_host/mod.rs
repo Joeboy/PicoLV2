@@ -1,6 +1,4 @@
-mod host_abi;
-pub(crate) mod lv2;
-mod lv2_runtime;
+mod lv2;
 mod midi_binding;
 mod plugin_graph;
 
@@ -14,7 +12,9 @@ use embassy_time::Instant;
 use heapless::spsc::{Consumer, Producer};
 use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE};
 
-use self::lv2_runtime::{PluginBinary, features_ptr};
+use self::lv2::{
+    Lv2AtomSequence, Lv2AtomSequenceBody, MIDI_BLOCK_CAPACITY, PluginBinary, features_ptr,
+};
 use self::midi_binding::{MidiControlBinding, load_bindings};
 use self::plugin_graph::{ControlToCvBridge, PluginNode, connect_edges, resolve_outputs};
 
@@ -23,7 +23,7 @@ use crate::audio_buffer::REPORT_BLOCKS;
 use crate::audio_buffer::{
     AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE, block_mut_ptr,
 };
-use crate::midi::{Lv2AtomSequence, Lv2AtomSequenceBody, MidiEvent};
+use crate::midi::MidiEvent;
 
 const TRANSPORT_BPM: f32 = 120.0;
 static mut MIDI_SEQUENCE: Lv2AtomSequence = Lv2AtomSequence::empty();
@@ -134,7 +134,7 @@ impl PluginHost {
             "LV2 atom input buffer too small for transport position"
         );
         let mut event_count = 0;
-        while event_count < crate::midi::MIDI_BLOCK_CAPACITY {
+        while event_count < MIDI_BLOCK_CAPACITY {
             let Some(event) = self
                 .pending_midi
                 .take()

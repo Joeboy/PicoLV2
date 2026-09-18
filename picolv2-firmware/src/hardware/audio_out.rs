@@ -7,10 +7,10 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIN_18, PIN_19, PIN_20, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use {defmt_rtt as _, panic_probe as _};
 
+use super::i2s::{PioI2sOut, PioI2sOutProgram};
 #[cfg(feature = "perf-diagnostics")]
 use crate::audio_buffer::REPORT_BLOCKS;
 use crate::audio_buffer::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
-use crate::i2s_ping_pong::{PioI2sOut, PioI2sOutProgram};
 use heapless::spsc::{Consumer, Producer};
 
 bind_interrupts!(struct Irqs {
