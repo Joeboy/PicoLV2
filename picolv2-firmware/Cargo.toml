@@ -6,6 +6,12 @@ license = "MIT OR Apache-2.0"
 
 publish = false
 
+[[bin]]
+name = "picolv2-firmware"
+path = "src/main.rs"
+test = false
+bench = false
+
 [features]
 # Logs per-block CPU/xrun stats (audio_out.rs, plugin_host.rs) roughly once
 # a second, to help diagnose choppy audio caused by CPU-bound plugin graphs.
