@@ -19,13 +19,15 @@ use self::midi_binding::{MidiControlBinding, load_bindings};
 use self::plugin_graph::{ControlToCvBridge, PluginNode, connect_edges, resolve_outputs};
 
 #[cfg(feature = "perf-diagnostics")]
-use crate::audio_buffer::REPORT_BLOCKS;
-use crate::audio_buffer::{
-    AudioBlockIndex, BLOCK_SIZE, MIDI_SCHEDULING_DELAY_BLOCKS, SAMPLE_RATE, block_mut_ptr,
+use crate::audio::REPORT_BLOCKS;
+use crate::audio::{
+    AUDIO_BLOCK_COUNT, AudioBlockIndex, BLOCK_SIZE, I2S_DMA_BUFFER_COUNT, SAMPLE_RATE,
+    block_mut_ptr,
 };
 use crate::midi::MidiEvent;
 
 const TRANSPORT_BPM: f32 = 120.0;
+const MIDI_SCHEDULING_DELAY_BLOCKS: usize = AUDIO_BLOCK_COUNT + I2S_DMA_BUFFER_COUNT;
 static mut MIDI_SEQUENCE: Lv2AtomSequence = Lv2AtomSequence::empty();
 
 /// Manages loaded LV2 plugin instances and bridges queued MIDI events

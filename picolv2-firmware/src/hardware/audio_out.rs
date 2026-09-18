@@ -9,8 +9,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 use super::i2s::{PioI2sOut, PioI2sOutProgram};
 #[cfg(feature = "perf-diagnostics")]
-use crate::audio_buffer::REPORT_BLOCKS;
-use crate::audio_buffer::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
+use crate::audio::REPORT_BLOCKS;
+use crate::audio::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
 use heapless::spsc::{Consumer, Producer};
 
 bind_interrupts!(struct Irqs {

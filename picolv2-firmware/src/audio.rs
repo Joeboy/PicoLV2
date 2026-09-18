@@ -10,7 +10,6 @@ pub const REPORT_BLOCKS: u32 = (SAMPLE_RATE as usize / BLOCK_SIZE) as u32;
 pub const AUDIO_BLOCK_COUNT: usize = 3;
 pub const AUDIO_QUEUE_SIZE: usize = AUDIO_BLOCK_COUNT + 1;
 pub const I2S_DMA_BUFFER_COUNT: usize = 2;
-pub const MIDI_SCHEDULING_DELAY_BLOCKS: usize = AUDIO_BLOCK_COUNT + I2S_DMA_BUFFER_COUNT;
 
 // Interleaved stereo: sample `i`'s left/right channels live at indices
 // `2*i` and `2*i + 1`.

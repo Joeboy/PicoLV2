@@ -5,7 +5,7 @@ use defmt::info;
 use picolv2_image_format::{Bundle, Entry, Graph, Node, PluginMetadata, PortKind};
 
 use super::lv2::{Lv2AtomSequence, Lv2Feature, PluginBinary, PluginInstance};
-use crate::audio_buffer::{BLOCK_SIZE, SAMPLE_RATE};
+use crate::audio::{BLOCK_SIZE, SAMPLE_RATE};
 use crate::log_heap;
 
 // Bridges a block-rate control output to an audio-rate CV input; the source

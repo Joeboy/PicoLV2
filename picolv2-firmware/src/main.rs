@@ -3,12 +3,12 @@
 
 extern crate alloc;
 
-mod audio_buffer;
+mod audio;
 mod hardware;
 mod midi;
 mod plugin_host;
 
-use audio_buffer::{AUDIO_BLOCK_COUNT, FREE_AUDIO_BLOCKS, READY_AUDIO_BLOCKS};
+use audio::{AUDIO_BLOCK_COUNT, FREE_AUDIO_BLOCKS, READY_AUDIO_BLOCKS};
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicUsize, Ordering};
 use defmt::*;
