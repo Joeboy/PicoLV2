@@ -25,6 +25,17 @@ pub struct SourceGraph {
     pub nodes: Vec<Node>,
     pub arcs: Vec<(String, String)>,
     pub outputs: Vec<(String, u8)>,
+    pub midi_bindings: Vec<SourceMidiBinding>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SourceMidiBinding {
+    pub port: String,
+    pub channel: u8,
+    pub controller: u8,
+    pub flags: u8,
+    pub minimum: f32,
+    pub maximum: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -250,6 +261,22 @@ fn encode(source: SourceGraph) -> Result<Vec<u8>, String> {
         .into_iter()
         .map(|(_, src, source_port)| (old_to_new[src], source_port))
         .collect();
+    let mut midi_bindings = Vec::new();
+    for binding in &source.midi_bindings {
+        let node = find_node(&binding.port)
+            .ok_or_else(|| format!("MIDI binding port {} has no graph node", binding.port))?;
+        midi_bindings.push((
+            old_to_new[node],
+            port_index(&binding.port)?,
+            binding.channel,
+            binding.controller,
+            binding.flags,
+            binding.minimum,
+            binding.maximum,
+        ));
+    }
+    midi_bindings.sort_by_key(|binding| (binding.0, binding.1, binding.2, binding.3));
+    midi_bindings.dedup();
 
     let mut result = Vec::new();
     result.extend_from_slice(picolv2_image_format::GRAPH_MAGIC);
@@ -276,6 +303,13 @@ fn encode(source: SourceGraph) -> Result<Vec<u8>, String> {
     for (node, port) in outputs {
         result.extend_from_slice(&(node as u16).to_le_bytes());
         result.extend_from_slice(&[port, 0]);
+    }
+    result.extend_from_slice(&(midi_bindings.len() as u16).to_le_bytes());
+    for (node, port, channel, controller, flags, minimum, maximum) in midi_bindings {
+        result.extend_from_slice(&(node as u16).to_le_bytes());
+        result.extend_from_slice(&[port, channel, controller, flags, 0, 0]);
+        result.extend_from_slice(&minimum.to_le_bytes());
+        result.extend_from_slice(&maximum.to_le_bytes());
     }
     Ok(result)
 }
@@ -346,11 +380,23 @@ mod tests {
         assert_eq!(graph.node_count, 1);
         assert_eq!(graph.edge_count, 0);
         assert_eq!(graph.output_count, 1);
+        assert_eq!(graph.midi_binding_count, 1);
         let node = graph.node(0).unwrap();
         assert_eq!(node.uri, b"http://moddevices.com/plugins/mda/DX10");
         assert_eq!(node.override_value(0), Some(123.5));
         let output = graph.output(0).unwrap();
         assert_eq!(output.node, 0);
         assert_eq!(output.port, 16);
+        let binding = graph.midi_binding(0).unwrap();
+        assert_eq!(binding.node, 0);
+        assert_eq!(binding.port, 0);
+        assert_eq!(binding.channel, 0);
+        assert_eq!(binding.controller, 1);
+        assert_eq!(
+            binding.flags,
+            picolv2_image_format::MIDI_BINDING_LOGARITHMIC
+        );
+        assert_eq!(binding.minimum, 2.5);
+        assert_eq!(binding.maximum, 4000.0);
     }
 }

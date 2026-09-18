@@ -77,6 +77,7 @@ pub fn load(graph_file: &str) -> Result<SourceGraph, String> {
         nodes,
         arcs,
         outputs,
+        midi_bindings: Vec::new(),
     })
 }
 

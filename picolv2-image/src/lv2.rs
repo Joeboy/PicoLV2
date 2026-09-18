@@ -9,6 +9,11 @@ const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
 const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
 const LV2_SYMBOL: &str = "http://lv2plug.in/ns/lv2core#symbol";
 const LV2_DEFAULT: &str = "http://lv2plug.in/ns/lv2core#default";
+const LV2_PORT_PROPERTY: &str = "http://lv2plug.in/ns/lv2core#portProperty";
+const LV2_INTEGER: &str = "http://lv2plug.in/ns/lv2core#integer";
+const LV2_TOGGLED: &str = "http://lv2plug.in/ns/lv2core#toggled";
+const PORT_PROPS_LOGARITHMIC: &str = "http://lv2plug.in/ns/ext/port-props#logarithmic";
+const PORT_PROPS_TRIGGER: &str = "http://lv2plug.in/ns/ext/port-props#trigger";
 const LV2_INPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#InputPort";
 const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
 const LV2_AUDIO_PORT: &str = "http://lv2plug.in/ns/lv2core#AudioPort";
@@ -96,7 +101,13 @@ pub fn compile_metadata(plugin_uri: &str, manifest_path: &str) -> Result<Vec<u8>
 /// Return the symbol-to-index map from the canonical plugin metadata.  MOD
 /// pedalboards identify instance ports by symbol rather than repeating their
 /// numeric LV2 indices in the pedalboard file.
-pub fn port_indices(plugin_uri: &str, search_path: &str) -> Result<Vec<(String, u8)>, String> {
+pub struct PortInfo {
+    pub symbol: String,
+    pub index: u8,
+    pub midi_binding_flags: u8,
+}
+
+pub fn port_info(plugin_uri: &str, search_path: &str) -> Result<Vec<PortInfo>, String> {
     let (_, manifest_path) = discover(plugin_uri, search_path)?;
     let manifest = turtle::parse(&manifest_path, "plugin manifest")?;
     let metadata_path = metadata_path(plugin_uri, &manifest_path, &manifest)?;
@@ -114,12 +125,39 @@ pub fn port_indices(plugin_uri: &str, search_path: &str) -> Result<Vec<(String, 
             .ok_or_else(|| format!("plugin {plugin_uri} port {port} has no lv2:index"))?
             .parse::<u8>()
             .map_err(|_| format!("plugin {plugin_uri} port {port} has invalid lv2:index"))?;
-        if result.iter().any(|(existing, _)| existing == symbol) {
+        if result
+            .iter()
+            .any(|existing: &PortInfo| existing.symbol == symbol)
+        {
             return Err(format!(
                 "plugin {plugin_uri} has duplicate port symbol {symbol}"
             ));
         }
-        result.push((symbol.to_string(), index));
+        let has_property = |property: &str| {
+            triples.iter().any(|triple| {
+                triple.subject == port
+                    && triple.predicate == LV2_PORT_PROPERTY
+                    && triple.object == property
+            })
+        };
+        let mut midi_binding_flags = 0;
+        if has_property(PORT_PROPS_LOGARITHMIC) {
+            midi_binding_flags |= picolv2_image_format::MIDI_BINDING_LOGARITHMIC;
+        }
+        if has_property(LV2_INTEGER) {
+            midi_binding_flags |= picolv2_image_format::MIDI_BINDING_INTEGER;
+        }
+        if has_property(LV2_TOGGLED) {
+            midi_binding_flags |= picolv2_image_format::MIDI_BINDING_TOGGLED;
+        }
+        if has_property(PORT_PROPS_TRIGGER) {
+            midi_binding_flags |= picolv2_image_format::MIDI_BINDING_TRIGGER;
+        }
+        result.push(PortInfo {
+            symbol: symbol.to_string(),
+            index,
+            midi_binding_flags,
+        });
     }
     if result.is_empty() {
         return Err(format!("plugin {plugin_uri} has no ports"));

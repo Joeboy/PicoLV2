@@ -5,9 +5,13 @@ pub const VERSION: u32 = 2;
 pub const FLASH_ADDRESS: usize = 0x1018_0000;
 pub const MAX_SIZE: usize = 512 * 1024;
 pub const GRAPH_MAGIC: &[u8; 8] = b"PICO GRP";
-pub const GRAPH_VERSION: u32 = 3;
+pub const GRAPH_VERSION: u32 = 4;
 pub const METADATA_MAGIC: &[u8; 8] = b"PICO MET";
 pub const METADATA_VERSION: u32 = 1;
+pub const MIDI_BINDING_LOGARITHMIC: u8 = 1 << 0;
+pub const MIDI_BINDING_INTEGER: u8 = 1 << 1;
+pub const MIDI_BINDING_TOGGLED: u8 = 1 << 2;
+pub const MIDI_BINDING_TRIGGER: u8 = 1 << 3;
 const HEADER_SIZE: usize = 20;
 const RECORD_SIZE: usize = 12;
 const METADATA_HEADER_SIZE: usize = 16;
@@ -16,6 +20,8 @@ const METADATA_PORT_SIZE: usize = 12;
 const OVERRIDE_SIZE: usize = 6;
 /// Size in bytes of a single graph output record (node:u16, port:u8, pad:u8).
 const OUTPUT_SIZE: usize = 4;
+/// Size in bytes of a MIDI CC binding record.
+const MIDI_BINDING_SIZE: usize = 16;
 
 #[cfg(test)]
 extern crate std;
@@ -48,6 +54,7 @@ pub struct Graph<'a> {
     // Graph-level audio outputs (e.g. Ingen's `audio_out_1`/`audio_out_2`),
     // in port order: index 0 is the left/mono channel, index 1 is right.
     pub output_count: u16,
+    pub midi_binding_count: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -85,6 +92,19 @@ pub struct Edge {
 pub struct Output {
     pub node: u16,
     pub port: u8,
+}
+
+/// Maps one MIDI Control Change message to an LV2 control input.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MidiBinding {
+    pub node: u16,
+    pub port: u8,
+    /// Zero-based MIDI channel, matching the low nibble of the status byte.
+    pub channel: u8,
+    pub controller: u8,
+    pub flags: u8,
+    pub minimum: f32,
+    pub maximum: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -219,10 +239,10 @@ impl<'a> Bundle<'a> {
 
 impl<'a> Graph<'a> {
     pub fn parse(bytes: &'a [u8]) -> Result<Self, ()> {
-        if bytes.len() < 16
-            || &bytes[..8] != GRAPH_MAGIC
-            || read_u32(bytes, 8) != Some(GRAPH_VERSION)
-        {
+        if bytes.len() < 16 || &bytes[..8] != GRAPH_MAGIC {
+            return Err(());
+        }
+        if read_u32(bytes, 8) != Some(GRAPH_VERSION) {
             return Err(());
         }
         let node_count = read_u16(bytes, 12).ok_or(())?;
@@ -239,14 +259,18 @@ impl<'a> Graph<'a> {
                 .checked_add(override_count.checked_mul(OVERRIDE_SIZE).ok_or(())?)
                 .ok_or(())?;
         }
-        offset = offset
-            .checked_add(edge_count as usize * 8)
-            .ok_or(())?;
+        offset = offset.checked_add(edge_count as usize * 8).ok_or(())?;
         let output_count = read_u16(bytes, offset).ok_or(())?;
-        offset = offset
+        let outputs_end = offset
             .checked_add(2)
             .ok_or(())?
             .checked_add(output_count as usize * OUTPUT_SIZE)
+            .ok_or(())?;
+        let midi_binding_count = read_u16(bytes, outputs_end).ok_or(())?;
+        let offset = outputs_end
+            .checked_add(2)
+            .ok_or(())?
+            .checked_add(midi_binding_count as usize * MIDI_BINDING_SIZE)
             .ok_or(())?;
         if offset != bytes.len() {
             return Err(());
@@ -256,6 +280,7 @@ impl<'a> Graph<'a> {
             node_count,
             edge_count,
             output_count,
+            midi_binding_count,
         })
     }
 
@@ -323,6 +348,43 @@ impl<'a> Graph<'a> {
         Ok(Output {
             node: read_u16(self.bytes, output_offset).ok_or(())?,
             port: *self.bytes.get(output_offset + 2).ok_or(())?,
+        })
+    }
+
+    pub fn midi_binding(&self, requested_index: u16) -> Result<MidiBinding, ()> {
+        if requested_index >= self.midi_binding_count {
+            return Err(());
+        }
+        let offset = self
+            .edges_offset()?
+            .checked_add(self.edge_count as usize * 8)
+            .ok_or(())?;
+        let output_count = read_u16(self.bytes, offset).ok_or(())? as usize;
+        let binding_offset = offset
+            .checked_add(2 + output_count * OUTPUT_SIZE + 2)
+            .ok_or(())?
+            .checked_add(requested_index as usize * MIDI_BINDING_SIZE)
+            .ok_or(())?;
+        Ok(MidiBinding {
+            node: read_u16(self.bytes, binding_offset).ok_or(())?,
+            port: *self.bytes.get(binding_offset + 2).ok_or(())?,
+            channel: *self.bytes.get(binding_offset + 3).ok_or(())?,
+            controller: *self.bytes.get(binding_offset + 4).ok_or(())?,
+            flags: *self.bytes.get(binding_offset + 5).ok_or(())?,
+            minimum: f32::from_le_bytes(
+                self.bytes
+                    .get(binding_offset + 8..binding_offset + 12)
+                    .ok_or(())?
+                    .try_into()
+                    .map_err(|_| ())?,
+            ),
+            maximum: f32::from_le_bytes(
+                self.bytes
+                    .get(binding_offset + 12..binding_offset + 16)
+                    .ok_or(())?
+                    .try_into()
+                    .map_err(|_| ())?,
+            ),
         })
     }
 }
@@ -442,7 +504,7 @@ mod tests {
         let mut bytes = Vec::from(*MAGIC);
         bytes.extend_from_slice(&VERSION.to_le_bytes());
         bytes.extend_from_slice(&1u32.to_le_bytes());
-        bytes.extend_from_slice(&18u32.to_le_bytes());
+        bytes.extend_from_slice(&20u32.to_le_bytes());
         bytes.extend_from_slice(&3u16.to_le_bytes());
         bytes.extend_from_slice(&[0, 0]);
         bytes.extend_from_slice(&2u32.to_le_bytes());
@@ -450,6 +512,7 @@ mod tests {
         bytes.extend_from_slice(b"uriBITTL");
         bytes.extend_from_slice(GRAPH_MAGIC);
         bytes.extend_from_slice(&GRAPH_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
@@ -472,9 +535,10 @@ mod tests {
         let mut bytes = Vec::from(*MAGIC);
         bytes.extend_from_slice(&VERSION.to_le_bytes());
         bytes.extend_from_slice(&0u32.to_le_bytes());
-        bytes.extend_from_slice(&18u32.to_le_bytes());
+        bytes.extend_from_slice(&20u32.to_le_bytes());
         bytes.extend_from_slice(GRAPH_MAGIC);
         bytes.extend_from_slice(&GRAPH_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
@@ -499,6 +563,7 @@ mod tests {
         bytes.extend_from_slice(&[0, 0]);
         bytes.extend_from_slice(&1u16.to_le_bytes());
         bytes.extend_from_slice(&[0, 0]);
+        bytes.extend_from_slice(&0u16.to_le_bytes());
         bytes.extend_from_slice(&0u16.to_le_bytes());
 
         let graph = Graph::parse(&bytes).unwrap();
@@ -525,6 +590,7 @@ mod tests {
         bytes.extend_from_slice(&[0, 0]);
         bytes.extend_from_slice(&1u16.to_le_bytes());
         bytes.extend_from_slice(&[1, 0]);
+        bytes.extend_from_slice(&0u16.to_le_bytes());
 
         let graph = Graph::parse(&bytes).unwrap();
         assert_eq!(graph.output_count, 2);
@@ -534,6 +600,38 @@ mod tests {
         let right = graph.output(1).unwrap();
         assert_eq!(right.node, 1);
         assert_eq!(right.port, 1);
+    }
+
+    #[test]
+    fn parses_midi_binding_fields() {
+        let mut bytes = Vec::from(*GRAPH_MAGIC);
+        bytes.extend_from_slice(&GRAPH_VERSION.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&3u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(b"uri");
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());
+        bytes.extend_from_slice(&0u16.to_le_bytes());
+        bytes.extend_from_slice(&[5, 0, 1, 0, 0, 0]);
+        bytes.extend_from_slice(&2.5f32.to_le_bytes());
+        bytes.extend_from_slice(&4000.0f32.to_le_bytes());
+
+        let graph = Graph::parse(&bytes).unwrap();
+        assert_eq!(graph.midi_binding_count, 1);
+        assert_eq!(
+            graph.midi_binding(0).unwrap(),
+            MidiBinding {
+                node: 0,
+                port: 5,
+                channel: 0,
+                controller: 1,
+                flags: 0,
+                minimum: 2.5,
+                maximum: 4000.0,
+            }
+        );
     }
 
     #[test]

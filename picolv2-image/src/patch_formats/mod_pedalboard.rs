@@ -1,5 +1,5 @@
 use crate::{
-    graph::{Node, SourceGraph},
+    graph::{Node, SourceGraph, SourceMidiBinding},
     lv2,
     turtle::{self, RDF_TYPE},
 };
@@ -14,6 +14,12 @@ const LV2_PORT: &str = "http://lv2plug.in/ns/lv2core#port";
 const LV2_INDEX: &str = "http://lv2plug.in/ns/lv2core#index";
 const LV2_AUDIO_PORT: &str = "http://lv2plug.in/ns/lv2core#AudioPort";
 const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
+const LV2_MINIMUM: &str = "http://lv2plug.in/ns/lv2core#minimum";
+const LV2_MAXIMUM: &str = "http://lv2plug.in/ns/lv2core#maximum";
+const MIDI_BINDING: &str = "http://lv2plug.in/ns/ext/midi#binding";
+const MIDI_CHANNEL: &str = "http://lv2plug.in/ns/ext/midi#channel";
+const MIDI_CONTROLLER: &str = "http://lv2plug.in/ns/ext/midi#Controller";
+const MIDI_CONTROLLER_NUMBER: &str = "http://lv2plug.in/ns/ext/midi#controllerNumber";
 
 /// Load a MOD pedalboard into the common graph model.  Unlike an Ingen export,
 /// a pedalboard only stores instance port symbols, so indices are resolved from
@@ -21,6 +27,7 @@ const LV2_OUTPUT_PORT: &str = "http://lv2plug.in/ns/lv2core#OutputPort";
 pub fn load(graph_file: &str, search_path: &str) -> Result<SourceGraph, String> {
     let triples = turtle::parse_mod(graph_file, "MOD pedalboard")?;
     let mut nodes = Vec::new();
+    let mut midi_bindings = Vec::new();
     for triple in &triples {
         if triple.predicate != RDF_TYPE || triple.object != INGEN_BLOCK {
             continue;
@@ -42,7 +49,7 @@ pub fn load(graph_file: &str, search_path: &str) -> Result<SourceGraph, String> 
         }
         let prototype = turtle::object_for(&triples, &triple.subject, LV2_PROTOTYPE)
             .ok_or_else(|| format!("MOD block {} has no lv2:prototype", triple.subject))?;
-        let plugin_ports = lv2::port_indices(prototype, search_path)?;
+        let plugin_ports = lv2::port_info(prototype, search_path)?;
         let ports: Vec<String> = triples
             .iter()
             .filter(|candidate| {
@@ -73,8 +80,8 @@ pub fn load(graph_file: &str, search_path: &str) -> Result<SourceGraph, String> 
             }
             let index = plugin_ports
                 .iter()
-                .find(|(candidate, _)| candidate == symbol)
-                .map(|(_, index)| *index)
+                .find(|candidate| candidate.symbol == symbol)
+                .map(|port| port.index)
                 .ok_or_else(|| {
                     format!(
                         "MOD block {} port {symbol} is not present in Pico plugin {prototype}",
@@ -82,6 +89,48 @@ pub fn load(graph_file: &str, search_path: &str) -> Result<SourceGraph, String> 
                     )
                 })?;
             port_indices.push((port.clone(), index));
+            for binding in triples.iter().filter(|candidate| {
+                candidate.subject == *port && candidate.predicate == MIDI_BINDING
+            }) {
+                let binding_subject = binding.object.as_str();
+                if turtle::object_for(&triples, binding_subject, RDF_TYPE) != Some(MIDI_CONTROLLER)
+                {
+                    return Err(format!("MOD port {port} has unsupported MIDI binding type"));
+                }
+                let channel = required_u8(&triples, binding_subject, MIDI_CHANNEL, "channel")?;
+                if !(1..=16).contains(&channel) {
+                    return Err(format!(
+                        "MOD port {port} MIDI channel must be in the range 1..=16"
+                    ));
+                }
+                let controller = required_u8(
+                    &triples,
+                    binding_subject,
+                    MIDI_CONTROLLER_NUMBER,
+                    "controller number",
+                )?;
+                if controller > 127 {
+                    return Err(format!(
+                        "MOD port {port} MIDI controller number must be in the range 0..=127"
+                    ));
+                }
+                let minimum = required_f32(&triples, binding_subject, LV2_MINIMUM, "minimum")?;
+                let maximum = required_f32(&triples, binding_subject, LV2_MAXIMUM, "maximum")?;
+                midi_bindings.push(SourceMidiBinding {
+                    port: port.clone(),
+                    // MOD pedalboards serialize user-facing channels 1..=16;
+                    // MIDI status bytes carry the same channels as 0..=15.
+                    channel: channel - 1,
+                    controller,
+                    flags: plugin_ports
+                        .iter()
+                        .find(|candidate| candidate.symbol == symbol)
+                        .expect("port index was resolved above")
+                        .midi_binding_flags,
+                    minimum,
+                    maximum,
+                });
+            }
             if let Some(value) = turtle::object_for(&triples, port, INGEN_VALUE) {
                 overrides.push((
                     index,
@@ -142,7 +191,38 @@ pub fn load(graph_file: &str, search_path: &str) -> Result<SourceGraph, String> 
         nodes,
         arcs,
         outputs,
+        midi_bindings,
     })
+}
+
+fn required_u8(
+    triples: &[turtle::Triple],
+    subject: &str,
+    predicate: &str,
+    label: &str,
+) -> Result<u8, String> {
+    let value = turtle::object_for(triples, subject, predicate)
+        .ok_or_else(|| format!("MIDI binding has no {label}"))?;
+    value
+        .parse()
+        .map_err(|_| format!("MIDI binding has invalid {label} {value}"))
+}
+
+fn required_f32(
+    triples: &[turtle::Triple],
+    subject: &str,
+    predicate: &str,
+    label: &str,
+) -> Result<f32, String> {
+    let value = turtle::object_for(triples, subject, predicate)
+        .ok_or_else(|| format!("MIDI binding has no {label}"))?;
+    let value: f32 = value
+        .parse()
+        .map_err(|_| format!("MIDI binding has invalid {label} {value}"))?;
+    if !value.is_finite() {
+        return Err(format!("MIDI binding has non-finite {label}"));
+    }
+    Ok(value)
 }
 
 fn port_symbol<'a>(block: &str, port: &'a str) -> Result<&'a str, String> {

@@ -1,5 +1,6 @@
 @prefix ingen: <http://drobilla.net/ns/ingen#> .
 @prefix lv2:   <http://lv2plug.in/ns/lv2core#> .
+@prefix midi:  <http://lv2plug.in/ns/ext/midi#> .
 @prefix pedal: <http://moddevices.com/ns/modpedal#> .
 
 _:output
@@ -17,6 +18,13 @@ _:output
 
 <DX10/attack>
     ingen:value 123.5 ;
+    midi:binding [
+        midi:channel 1 ;
+        midi:controllerNumber 1 ;
+        lv2:minimum 2.5 ;
+        lv2:maximum 4000.0 ;
+        a midi:Controller
+    ] ;
     a lv2:ControlPort , lv2:InputPort .
 
 <DX10/event_in>

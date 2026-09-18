@@ -9,10 +9,17 @@ and by host-side tools.
 A bundle contains a little-endian header followed by a sequence of entries:
 
 - magic: `PICO LV2`
-- format version: `1`
+- format version: `2`
 - entry count
 - for each entry: URI length, binary length, metadata length, URI, binary, and
-  TTL metadata
+  compact plugin metadata
+- a compiled plugin graph containing nodes, edges, audio outputs, parameter
+  overrides, and MIDI CC bindings
+
+Graph format version 4 stores each MIDI binding as a target node and LV2 port,
+a zero-based MIDI channel, controller number, minimum and maximum values, and
+flags for logarithmic, integer, toggle, or trigger mapping. The reader rejects
+graph data written for any other format version.
 
 The library does not allocate or copy entry data. `Bundle::parse` validates the
 header and all entry bounds, and `Bundle::find` returns borrowed slices for a
@@ -31,6 +38,5 @@ The address and size are exported as `FLASH_ADDRESS` and `MAX_SIZE`.
 
 ## Compatibility
 
-This is an internal format for PicoLV2. It currently stores raw plugin binaries
-and raw TTL files. I'm making it up as I go along so don't expect this to be
-stable.
+This is an internal format for PicoLV2. I'm making it up as I go along so don't
+expect this to be stable.

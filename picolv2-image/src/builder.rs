@@ -250,8 +250,8 @@ pub fn image_info(image_bytes: &[u8], path_display: &str) -> Result<String, Stri
         .graph()
         .map_err(|error| format!("invalid graph: {error:?}"))?;
     out.push_str(&format!(
-        "graph: {} nodes, {} edges\n",
-        graph.node_count, graph.edge_count
+        "graph: {} nodes, {} edges, {} MIDI bindings\n",
+        graph.node_count, graph.edge_count, graph.midi_binding_count
     ));
     for node_index in 0..graph.node_count {
         let node = graph
@@ -266,6 +266,21 @@ pub fn image_info(image_bytes: &[u8], path_display: &str) -> Result<String, Stri
         out.push_str(&format!(
             "  edge[{edge_index}] node[{}]:{} -> node[{}]:{}\n",
             edge.source_node, edge.source_port, edge.destination_node, edge.destination_port
+        ));
+    }
+    for binding_index in 0..graph.midi_binding_count {
+        let binding = graph
+            .midi_binding(binding_index)
+            .map_err(|_| format!("invalid MIDI binding {binding_index}"))?;
+        out.push_str(&format!(
+            "  midi[{binding_index}] channel={} controller={} -> node[{}]:{} ({:.6}..{:.6}, flags=0x{:02x})\n",
+            binding.channel + 1,
+            binding.controller,
+            binding.node,
+            binding.port,
+            binding.minimum,
+            binding.maximum,
+            binding.flags,
         ));
     }
 

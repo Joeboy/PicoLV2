@@ -138,14 +138,6 @@ probe-rs download \
 probe-rs reset --chip RP235x
 ```
 
-Plugin URIs must be unique and are resolved from `PICOLV2_PATH`; each bundle's
-`manifest.ttl` supplies the binary and the matching `rdfs:seeAlso` declaration
-locates the plugin TTL. Plugin metadata is parsed during image creation and
-stored as compact port records; invalid or unsupported port metadata fails the
-command. The bundle has a 512 KiB maximum size. `--patch` accepts an Ingen graph
-bundle directory (e.g. `patches/throwaway/tine-piano-plus-delay.ingen`), reading
-its `manifest.ttl` to locate and parse the graph.
-
 ## Bonus: debugging with a debug probe and probe-rs
 
 ```sh

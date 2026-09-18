@@ -12,7 +12,10 @@ use elf_loader::{
 #[cfg(feature = "perf-diagnostics")]
 use embassy_time::Instant;
 use heapless::spsc::{Consumer, Producer};
-use picolv2_image_format::{Bundle, FLASH_ADDRESS, MAX_SIZE, PluginMetadata, PortKind};
+use picolv2_image_format::{
+    Bundle, FLASH_ADDRESS, MAX_SIZE, MIDI_BINDING_INTEGER, MIDI_BINDING_LOGARITHMIC,
+    MIDI_BINDING_TOGGLED, MIDI_BINDING_TRIGGER, PluginMetadata, PortKind,
+};
 
 #[cfg(feature = "perf-diagnostics")]
 use crate::audio_buffer::REPORT_BLOCKS;
@@ -169,6 +172,56 @@ struct ControlToCvBridge {
     destination: *mut [f32; BLOCK_SIZE],
 }
 
+struct MidiControlBinding {
+    channel: u8,
+    controller: u8,
+    flags: u8,
+    minimum: f32,
+    maximum: f32,
+    target: *mut f32,
+}
+
+impl MidiControlBinding {
+    fn apply(&self, event: MidiEvent) {
+        if event.status & 0xf0 != 0xb0
+            || event.status & 0x0f != self.channel
+            || event.data1 != self.controller
+        {
+            return;
+        }
+        let mut value = if self.flags & MIDI_BINDING_TRIGGER != 0 {
+            self.maximum
+        } else if self.flags & MIDI_BINDING_TOGGLED != 0 {
+            if event.data2 >= 64 {
+                self.maximum
+            } else {
+                self.minimum
+            }
+        } else if event.data2 == 0 {
+            self.minimum
+        } else if event.data2 == 127 {
+            self.maximum
+        } else {
+            let normalized = f32::from(event.data2) / 127.0;
+            if self.flags & MIDI_BINDING_LOGARITHMIC != 0 {
+                self.minimum * libm::powf(self.maximum / self.minimum, normalized)
+            } else {
+                self.minimum + (self.maximum - self.minimum) * normalized
+            }
+        };
+        if self.flags & MIDI_BINDING_INTEGER != 0 {
+            value = libm::roundf(value);
+        }
+        unsafe { *self.target = value };
+    }
+
+    fn reset_trigger(&self) {
+        if self.flags & MIDI_BINDING_TRIGGER != 0 {
+            unsafe { *self.target = self.minimum };
+        }
+    }
+}
+
 struct PluginNode {
     instance: PluginInstance,
     // Kept only to own the connected buffers for the node's lifetime; the
@@ -218,6 +271,7 @@ pub struct PluginHost {
     left_output: (usize, u32),
     right_output: (usize, u32),
     control_to_cv_bridges: Vec<ControlToCvBridge>,
+    midi_control_bindings: Vec<MidiControlBinding>,
     midi_consumer: Consumer<'static, MidiEvent>,
     pending_midi: Option<MidiEvent>,
     timeline_origin_micros: u64,
@@ -510,9 +564,37 @@ impl PluginHost {
                 _ => panic!("graph edge connects incompatible ports"),
             }
         }
+        let mut midi_control_bindings = Vec::new();
+        for binding_index in 0..graph.midi_binding_count {
+            let binding = graph
+                .midi_binding(binding_index)
+                .expect("invalid MIDI binding");
+            assert!(binding.channel < 16, "MIDI binding channel out of range");
+            assert!(
+                binding.controller < 128,
+                "MIDI binding controller out of range"
+            );
+            let node = nodes
+                .get_mut(binding.node as usize)
+                .expect("MIDI binding node out of range");
+            let target = node
+                .control_inputs
+                .iter_mut()
+                .find(|(port, _)| *port == binding.port as u32)
+                .map(|(_, control)| control.as_mut() as *mut f32)
+                .expect("MIDI binding target is not a control input");
+            midi_control_bindings.push(MidiControlBinding {
+                channel: binding.channel,
+                controller: binding.controller,
+                flags: binding.flags,
+                minimum: binding.minimum,
+                maximum: binding.maximum,
+                target,
+            });
+        }
         info!(
-            "plugin graph ready nodes={} edges={}",
-            graph.node_count, graph.edge_count
+            "plugin graph ready nodes={} edges={} midi_bindings={}",
+            graph.node_count, graph.edge_count, graph.midi_binding_count
         );
         // The graph's declared output ports (e.g. Ingen's `audio_out_1`/
         // `audio_out_2`) tell us exactly which node/port feeds the left and
@@ -536,6 +618,7 @@ impl PluginHost {
             left_output,
             right_output,
             control_to_cv_bridges,
+            midi_control_bindings,
             midi_consumer,
             pending_midi: None,
             timeline_origin_micros: embassy_time::Instant::now().as_micros(),
@@ -585,6 +668,9 @@ impl PluginHost {
                 self.pending_midi = Some(event);
                 break;
             }
+            for binding in &self.midi_control_bindings {
+                binding.apply(event);
+            }
             event_count += 1;
         }
         if event_count > 0 {
@@ -619,6 +705,9 @@ impl PluginHost {
                 let value = unsafe { *bridge.source };
                 unsafe { (*bridge.destination).fill(value) };
             }
+        }
+        for binding in &self.midi_control_bindings {
+            binding.reset_trigger();
         }
         let (left_node, left_port) = self.left_output;
         let (right_node, right_port) = self.right_output;
