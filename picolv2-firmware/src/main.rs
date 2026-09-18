@@ -5,7 +5,6 @@ extern crate alloc;
 
 mod audio_buffer;
 mod audio_out;
-mod host_hooks;
 mod i2s_ping_pong;
 mod lv2;
 mod midi;

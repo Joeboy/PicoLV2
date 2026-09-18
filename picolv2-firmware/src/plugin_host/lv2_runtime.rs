@@ -7,7 +7,7 @@ use elf_loader::{
     input::ElfBinary,
 };
 
-use crate::host_hooks::HOST_SYMBOLS;
+use super::host_abi::HOST_SYMBOLS;
 use crate::log_heap;
 use crate::lv2::{
     ATOM_BLANK_URI, ATOM_BLANK_URID, ATOM_DOUBLE_URI, ATOM_DOUBLE_URID, ATOM_FLOAT_URI,

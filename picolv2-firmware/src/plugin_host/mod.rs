@@ -1,3 +1,4 @@
+mod host_abi;
 mod lv2_runtime;
 mod midi_binding;
 mod plugin_graph;
