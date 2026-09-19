@@ -229,13 +229,13 @@ pub async fn plugin_host_task(
             if let Some(index) = free_consumer.dequeue() {
                 break index;
             }
-            embassy_futures::yield_now().await;
+            core::hint::spin_loop();
         };
 
         unsafe { plugin.process(block_mut_ptr(index)) };
 
-        while ready_producer.enqueue(index).is_err() {
-            embassy_futures::yield_now().await;
-        }
+        ready_producer
+            .enqueue(index)
+            .expect("ready audio block queue unexpectedly full");
     }
 }
