@@ -5,9 +5,8 @@
 
 use core::alloc::{GlobalAlloc, Layout};
 
-use defmt::info;
-
 use crate::HEAP;
+use crate::diagnostics::plugin_log;
 
 /// Backs plugin `malloc`/`calloc`/`realloc`/`free` with the same tracked heap
 /// used for loading plugin ELF images.
@@ -38,11 +37,7 @@ extern "C" fn picolv2_log_write(pointer: *const u8, len: i32) {
         return;
     }
     let bytes = unsafe { core::slice::from_raw_parts(pointer, len as usize) };
-    let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
-    match core::str::from_utf8(bytes) {
-        Ok(text) => info!("plugin: {}", text),
-        Err(_) => info!("plugin: {=[u8]}", bytes),
-    }
+    plugin_log(bytes);
 }
 
 // Keep this list limited to host services that require firmware state or I/O.

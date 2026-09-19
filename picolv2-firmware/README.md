@@ -10,14 +10,17 @@ cd picolv2-firmware
 cargo build --release
 ```
 
-## Build with diagnostics
+## Logging and diagnostics
 
-Since the Pico2 is a bit underpowered, it might sometimes be useful to see which
-plugins are eating a lot of cycles.
+The default log level is `info`, which includes informational, warning, and
+error messages. Override `DEFMT_LOG` to select `off`, `error`, `warn`, `info`,
+`debug`, or `trace`. The `debug` and `trace` levels also enable heap statistics,
+plugin timing, and audio xrun measurements.
 
 ```sh
 cd picolv2-firmware
-cargo build --release --features perf-diagnostics
+DEFMT_LOG=warn cargo build --release
+DEFMT_LOG=debug cargo build --release
 ```
 
 ## Usage

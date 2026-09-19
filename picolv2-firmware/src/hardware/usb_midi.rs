@@ -1,4 +1,3 @@
-use defmt::{debug, info, warn};
 use embassy_futures::select::{Either, select};
 use embassy_rp::Peri;
 use embassy_rp::bind_interrupts;
@@ -10,6 +9,7 @@ use embassy_usb_host::handler::BusRoute;
 use embassy_usb_host::{BusState, bus};
 use heapless::spsc::Producer;
 
+use crate::diagnostics::{diag_debug, diag_info, diag_warn};
 use crate::midi::MidiEvent;
 
 const MAX_DESCRIPTOR_SIZE: usize = 512;
@@ -48,9 +48,9 @@ pub async fn usb_midi_task(
     let (mut controller, bus) = bus(driver, &USB_BUS_STATE);
 
     loop {
-        info!("Waiting for USB MIDI device");
+        diag_info!("Waiting for USB MIDI device");
         let speed = controller.wait_for_connection().await;
-        info!("USB device connected at {:?}", speed);
+        diag_info!("USB device connected at {:?}", speed);
 
         let mut descriptor_buffer = [0u8; MAX_DESCRIPTOR_SIZE];
         let (enum_info, descriptor_len) = match bus
@@ -59,7 +59,7 @@ pub async fn usb_midi_task(
         {
             Ok(result) => result,
             Err(error) => {
-                warn!("USB device enumeration failed: {:?}", error);
+                diag_warn!("USB device enumeration failed: {:?}", error);
                 continue;
             }
         };
@@ -67,7 +67,7 @@ pub async fn usb_midi_task(
         let mut midi = match MidiHost::new(&bus, &descriptor_buffer[..descriptor_len], &enum_info) {
             Ok(midi) => midi,
             Err(error) => {
-                warn!(
+                diag_warn!(
                     "Connected USB device has no supported MIDI input: {:?}",
                     error
                 );
@@ -77,12 +77,12 @@ pub async fn usb_midi_task(
         };
 
         if midi.input_ports().is_empty() {
-            warn!("MIDI device has no input ports");
+            diag_warn!("MIDI device has no input ports");
             bus.free_address(enum_info.device_address);
             continue;
         }
 
-        info!("USB MIDI input ready");
+        diag_info!("USB MIDI input ready");
         let mut transfer_buffer = [0u8; MIDI_TRANSFER_BUFFER_SIZE];
         loop {
             match select(
@@ -95,7 +95,7 @@ pub async fn usb_midi_task(
                     let packets = match event_packets(&transfer_buffer[..len]) {
                         Ok(packets) => packets,
                         Err(error) => {
-                            debug!("Ignored malformed USB-MIDI transfer: {:?}", error);
+                            diag_debug!("Ignored malformed USB-MIDI transfer: {:?}", error);
                             continue;
                         }
                     };
@@ -104,27 +104,29 @@ pub async fn usb_midi_task(
                             continue;
                         };
                         if let Some(event) = midi_event(data, Instant::now().as_micros()) {
-                            debug!(
+                            diag_debug!(
                                 "USB MIDI event status={} data1={} data2={}",
-                                event.status, event.data1, event.data2
+                                event.status,
+                                event.data1,
+                                event.data2
                             );
                             if producer.enqueue(event).is_err() {
-                                warn!("MIDI queue full; dropping event");
+                                diag_warn!("MIDI queue full; dropping event");
                             }
                         } else {
-                            debug!("Ignoring USB MIDI packet: {=[u8]:x}", data);
+                            diag_debug!("Ignoring USB MIDI packet: {=[u8]:x}", data);
                         }
                     }
                 }
                 Either::First(Err(error)) => {
-                    warn!("USB MIDI read failed: {:?}", error);
+                    diag_warn!("USB MIDI read failed: {:?}", error);
                     break;
                 }
                 Either::Second(DeviceEvent::Disconnected) => {
-                    info!("USB MIDI device disconnected");
+                    diag_info!("USB MIDI device disconnected");
                     break;
                 }
-                Either::Second(event) => debug!("USB device event: {:?}", event),
+                Either::Second(event) => diag_debug!("USB device event: {:?}", event),
             }
         }
 

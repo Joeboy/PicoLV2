@@ -1,6 +1,5 @@
 use core::ffi::{CStr, c_char, c_void};
 
-use defmt::info;
 use elf_loader::{
     Loader, Relocator,
     image::{SyntheticModule, SyntheticSymbol},
@@ -18,6 +17,7 @@ use super::{
     TIME_FRAME_URID, TIME_POSITION_URI, TIME_POSITION_URID, TIME_SPEED_URI, TIME_SPEED_URID,
     URID_MAP_URI,
 };
+use crate::diagnostics::diag_info;
 use crate::log_heap;
 
 extern "C" fn map_uri(_handle: *mut c_void, uri: *const c_char) -> u32 {
@@ -69,7 +69,7 @@ pub(in crate::plugin_host) struct PluginBinary {
 
 impl PluginBinary {
     pub(in crate::plugin_host) fn load(name: &str, elf_bytes: &[u8], plugin_uri: &[u8]) -> Self {
-        info!(
+        diag_info!(
             "plugin load begin name={} elf_bytes={}",
             name,
             elf_bytes.len()
@@ -111,7 +111,7 @@ impl PluginBinary {
             }
             descriptor_index += 1;
         };
-        info!("selected LV2 descriptor index={}", descriptor_index);
+        diag_info!("selected LV2 descriptor index={}", descriptor_index);
 
         // Keep the relocated ELF resident in memory for the lifetime of the firmware.
         core::mem::forget(lib);

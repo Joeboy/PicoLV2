@@ -1,11 +1,11 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::ffi::c_void;
 
-use defmt::info;
 use picolv2_image_format::{Bundle, Entry, Graph, Node, PluginMetadata, PortKind};
 
 use super::lv2::{Lv2AtomSequence, Lv2Feature, PluginBinary, PluginInstance};
 use crate::audio::{BLOCK_SIZE, SAMPLE_RATE};
+use crate::diagnostics::diag_info;
 use crate::log_heap;
 
 // Bridges a block-rate control output to an audio-rate CV input; the source
@@ -117,7 +117,7 @@ impl PluginNode {
         }
 
         instance.activate();
-        info!(
+        diag_info!(
             "graph node {} ready audio_in={} audio_out={} control_in={} control_out={} cv_in={} cv_out={} atom_out={}",
             node_index,
             audio_inputs.len(),

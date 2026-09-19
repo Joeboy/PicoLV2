@@ -4,65 +4,24 @@
 extern crate alloc;
 
 mod audio;
+mod diagnostics;
 mod hardware;
 mod midi;
 mod plugin_host;
 
 use audio::{AUDIO_BLOCK_COUNT, FREE_AUDIO_BLOCKS, READY_AUDIO_BLOCKS};
-use core::alloc::{GlobalAlloc, Layout};
-use core::sync::atomic::{AtomicUsize, Ordering};
-use defmt::*;
+use diagnostics::{SystemHeap, diag_info};
 use embassy_executor::Executor;
 use embassy_rp::multicore::{Stack, spawn_core1};
-use embedded_alloc::TlsfHeap as Heap;
 use hardware::{audio_task, usb_midi_task};
 use heapless::spsc::Queue;
 use midi::MIDI_QUEUE;
+use panic_probe as _;
 use plugin_host::plugin_host_task;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
-
-struct CountingHeap {
-    heap: Heap,
-    current: AtomicUsize,
-    peak: AtomicUsize,
-    allocations: AtomicUsize,
-    last_request: AtomicUsize,
-    failures: AtomicUsize,
-    failed_request: AtomicUsize,
-}
-
-unsafe impl GlobalAlloc for CountingHeap {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.last_request.store(layout.size(), Ordering::Relaxed);
-        let pointer = unsafe { self.heap.alloc(layout) };
-        if !pointer.is_null() {
-            let current = self.current.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
-            self.allocations.fetch_add(1, Ordering::Relaxed);
-            self.peak.fetch_max(current, Ordering::Relaxed);
-        } else {
-            self.failures.fetch_add(1, Ordering::Relaxed);
-            self.failed_request.store(layout.size(), Ordering::Relaxed);
-        }
-        pointer
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        unsafe { self.heap.dealloc(pointer, layout) };
-        self.current.fetch_sub(layout.size(), Ordering::Relaxed);
-    }
-}
 
 #[global_allocator]
-static HEAP: CountingHeap = CountingHeap {
-    heap: Heap::empty(),
-    current: AtomicUsize::new(0),
-    peak: AtomicUsize::new(0),
-    allocations: AtomicUsize::new(0),
-    last_request: AtomicUsize::new(0),
-    failures: AtomicUsize::new(0),
-    failed_request: AtomicUsize::new(0),
-};
+static HEAP: SystemHeap = SystemHeap::empty();
 
 const HEAP_SIZE: usize = 384 * 1024;
 static mut HEAP_MEM: [u8; HEAP_SIZE] = [0; HEAP_SIZE];
@@ -75,10 +34,9 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 fn main() -> ! {
     let p = embassy_rp::init(Default::default());
     unsafe {
-        HEAP.heap
-            .init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
+        HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
     }
-    info!("picolv2-firmware starting");
+    diag_info!("picolv2-firmware starting");
     log_heap("after init");
 
     let midi_queue = MIDI_QUEUE.init(Queue::new());
@@ -99,40 +57,33 @@ fn main() -> ! {
         move || {
             let executor1 = EXECUTOR1.init(Executor::new());
             executor1.run(|spawner| {
-                spawner.spawn(unwrap!(plugin_host_task(
-                    midi_consumer,
-                    free_consumer,
-                    ready_producer,
-                )));
+                spawner.spawn(
+                    plugin_host_task(midi_consumer, free_consumer, ready_producer)
+                        .expect("plugin host task already spawned"),
+                );
             });
         },
     );
 
     let executor0 = EXECUTOR0.init(Executor::new());
     executor0.run(|spawner| {
-        spawner.spawn(unwrap!(audio_task(
-            p.PIO0,
-            p.DMA_CH0,
-            p.DMA_CH1,
-            p.PIN_18,
-            p.PIN_19,
-            p.PIN_20,
-            ready_consumer,
-            free_producer,
-        )));
-        spawner.spawn(unwrap!(usb_midi_task(p.USB, midi_producer)));
+        spawner.spawn(
+            audio_task(
+                p.PIO0,
+                p.DMA_CH0,
+                p.DMA_CH1,
+                p.PIN_18,
+                p.PIN_19,
+                p.PIN_20,
+                ready_consumer,
+                free_producer,
+            )
+            .expect("audio task already spawned"),
+        );
+        spawner.spawn(usb_midi_task(p.USB, midi_producer).expect("USB MIDI task already spawned"));
     })
 }
 
 pub fn log_heap(stage: &'static str) {
-    info!(
-        "heap {} current={} peak={} allocations={} last_request={} failures={} failed_request={}",
-        stage,
-        HEAP.current.load(Ordering::Relaxed),
-        HEAP.peak.load(Ordering::Relaxed),
-        HEAP.allocations.load(Ordering::Relaxed),
-        HEAP.last_request.load(Ordering::Relaxed),
-        HEAP.failures.load(Ordering::Relaxed),
-        HEAP.failed_request.load(Ordering::Relaxed),
-    );
+    HEAP.log(stage);
 }

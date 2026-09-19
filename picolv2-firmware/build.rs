@@ -12,6 +12,13 @@ fn main() {
         .unwrap();
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=memory.x");
+    println!("cargo:rerun-if-env-changed=DEFMT_LOG");
+
+    println!("cargo:rustc-check-cfg=cfg(picolv2_perf_diagnostics)");
+    let log_level = env::var("DEFMT_LOG").unwrap_or_else(|_| "info".into());
+    if matches!(log_level.as_str(), "debug" | "trace") {
+        println!("cargo:rustc-cfg=picolv2_perf_diagnostics");
+    }
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
     println!("cargo:rustc-link-arg-bins=-Tlink.x");

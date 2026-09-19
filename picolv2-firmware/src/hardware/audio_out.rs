@@ -1,16 +1,13 @@
 use core::ops::ControlFlow;
 
-use defmt::info;
 use embassy_rp::Peri;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIN_18, PIN_19, PIN_20, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use {defmt_rtt as _, panic_probe as _};
 
 use super::i2s::{PioI2sOut, PioI2sOutProgram};
-#[cfg(feature = "perf-diagnostics")]
-use crate::audio::REPORT_BLOCKS;
 use crate::audio::{AudioBlockIndex, BLOCK_SIZE, SAMPLE_RATE, block_ptr};
+use crate::diagnostics::{AudioOutputPerformance, diag_info};
 use heapless::spsc::{Consumer, Producer};
 
 bind_interrupts!(struct Irqs {
@@ -36,7 +33,7 @@ pub async fn audio_task(
     mut ready_consumer: Consumer<'static, AudioBlockIndex>,
     mut free_producer: Producer<'static, AudioBlockIndex>,
 ) {
-    info!("Starting I2S audio output task");
+    diag_info!("Starting I2S audio output task");
 
     let Pio {
         mut common, sm0, ..
@@ -51,12 +48,7 @@ pub async fn audio_task(
     let mut buf_a = [0u32; BLOCK_SIZE];
     let mut buf_b = [0u32; BLOCK_SIZE];
 
-    // Diagnostics: report how often the ready-block queue was empty (xrun,
-    // played as silence) roughly once a second.
-    #[cfg(feature = "perf-diagnostics")]
-    let mut total_blocks: u32 = 0;
-    #[cfg(feature = "perf-diagnostics")]
-    let mut xrun_blocks: u32 = 0;
+    let mut performance = AudioOutputPerformance::new();
 
     let mut i2s = PioI2sOut::new(
         &mut common,
@@ -70,11 +62,7 @@ pub async fn audio_task(
     );
 
     i2s.stream_ping_pong(dma_ch0, dma_ch1, &mut buf_a, &mut buf_b, move |buf| {
-        #[cfg(feature = "perf-diagnostics")]
-        {
-            total_blocks += 1;
-        }
-        if let Some(index) = ready_consumer.dequeue() {
+        let rendered = if let Some(index) = ready_consumer.dequeue() {
             let samples = unsafe { block_ptr(index) };
             for (sample_index, word) in buf.iter_mut().enumerate() {
                 let left = unsafe { samples.add(sample_index * 2).read() };
@@ -86,19 +74,12 @@ pub async fn audio_task(
             free_producer
                 .enqueue(index)
                 .expect("free audio block queue unexpectedly full");
+            true
         } else {
-            #[cfg(feature = "perf-diagnostics")]
-            {
-                xrun_blocks += 1;
-            }
             buf.fill(0);
-        }
-        #[cfg(feature = "perf-diagnostics")]
-        if total_blocks >= REPORT_BLOCKS {
-            info!("audio out: xruns={}/{} blocks", xrun_blocks, total_blocks);
-            total_blocks = 0;
-            xrun_blocks = 0;
-        }
+            false
+        };
+        performance.block_finished(rendered);
         ControlFlow::Continue(())
     })
     .await;
